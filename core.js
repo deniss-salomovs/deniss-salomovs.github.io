@@ -81,7 +81,7 @@ const projectsData = [
         }
     },
     {
-        id: 'kingpin',
+        id: 'king-pin',
         name: 'King Pin',
         type: 'gamejam',
         role: 'Pixel artist, Music/SFX',
