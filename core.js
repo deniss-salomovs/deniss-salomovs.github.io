@@ -198,49 +198,12 @@ function renderProjects() {
     gameJamsContainer.innerHTML = gameJams.map(project => generateProjectHTML(project)).join('');
 }
 
-// Asset data cache
-let assetsData = null;
-
-// Function to load assets from JSON file
-async function loadAssetsData() {
-    if (assetsData) {
-        return assetsData;
-    }
-    
+// Function to scan directory and get assets
+async function scanDirectory(folderPath) {
     try {
-        const response = await fetch('assets.json');
-        if (response.ok) {
-            assetsData = await response.json();
-            return assetsData;
-        } else {
-            return {};
-        }
-    } catch (error) {
-        console.error('Error loading assets data:', error);
-        return {};
-    }
-}
-
-// Function to get assets for a project
-async function discoverAssets(projectName) {
-    const assets = await loadAssetsData();
-    
-    // Extract project folder name from project path
-    const project = projectConfig[projectName];
-    const projectPath = project.path;
-    const projectFolder = projectPath.split('/').slice(-2, -1)[0]; // Get folder name like "ether", "dr-boo", etc.
-    
-    const projectAssets = assets[projectFolder] || [];
-    
-    return projectAssets;
-}
-
-// Function to get assets for Art page
-async function discoverArtAssets() {
-    try {
-        const response = await fetch('assets/personal-art/');
+        const response = await fetch(folderPath);
         if (!response.ok) {
-            throw new Error(`Could not access assets/personal-art/`);
+            throw new Error(`Could not access ${folderPath}`);
         }
         
         const html = await response.text();
@@ -261,7 +224,7 @@ async function discoverArtAssets() {
             }
         });
         
-        // Sort assets
+        // Sort assets by number in filename
         assets.sort((a, b) => {
             const aNum = parseInt(a.match(/\d+/)?.[0] || '999');
             const bNum = parseInt(b.match(/\d+/)?.[0] || '999');
@@ -271,9 +234,22 @@ async function discoverArtAssets() {
         return assets;
         
     } catch (error) {
-        console.error('Error loading art assets:', error);
+        console.error(`Error scanning directory ${folderPath}:`, error);
         return [];
     }
+}
+
+// Function to get assets for a project
+async function discoverAssets(projectName) {
+    const project = projectConfig[projectName];
+    const projectPath = project.path;
+    
+    return await scanDirectory(projectPath);
+}
+
+// Function to get assets for Art page
+async function discoverArtAssets() {
+    return await scanDirectory('assets/personal-art/');
 }
 
 // Function to create gallery item
@@ -370,9 +346,7 @@ async function populateArtGallery() {
     gallery.innerHTML = '<div class="loading-state">Loading art gallery...</div>';
     
     try {
-        // Load assets from the JSON file instead of scanning directory
-        const assetsData = await loadAssetsData();
-        const assets = assetsData['personal-art'] || [];
+        const assets = await discoverArtAssets();
         
         if (assets.length === 0) {
             gallery.innerHTML = '<div class="no-assets">No art assets found</div>';
