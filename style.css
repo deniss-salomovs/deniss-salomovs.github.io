@@ -8,6 +8,10 @@
   --accent-1: #4a90e2;
   --accent-2: #e67e22;
   
+  /* Mobile Performance */
+  --mobile-asset-limit: 20;
+  --desktop-asset-limit: 50;
+  
   /* Font */
   --font-family: 'Roboto Mono', monospace;
   --header-3: 2rem;
@@ -405,5 +409,87 @@ h3 {
     grid-column: 1 / -1;
     justify-self: center;
     margin-top: var(--spacing-small);
+  }
+}
+
+/* Mobile Performance Optimizations */
+@media (max-width: 900px) {
+  .gallery-asset {
+    /* Optimize for mobile rendering */
+    will-change: transform;
+    transform: translateZ(0); /* Force hardware acceleration */
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  
+  .gallery-grid {
+    /* Reduce complexity on mobile */
+    contain: layout style paint;
+  }
+  
+  .gallery-column {
+    /* Optimize column rendering */
+    contain: layout;
+  }
+  
+  /* Reduce animations on mobile */
+  .gallery-asset:hover {
+    transform: none;
+  }
+  
+  /* Optimize video elements */
+  video.gallery-asset {
+    preload: none;
+    playsinline: true;
+  }
+}
+
+/* Lazy loading styles */
+.gallery-asset {
+  transition: opacity 0.3s ease;
+}
+
+.gallery-asset[data-src] {
+  opacity: 0;
+}
+
+/* Load more button */
+.load-more-btn {
+  width: 100%;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: var(--dark);
+  color: var(--highlight);
+  border: none;
+  border-radius: var(--border-radius-small);
+  cursor: pointer;
+  font-size: var(--body);
+  font-family: var(--font-family);
+  transition: background-color 0.2s ease;
+}
+
+.load-more-btn:hover {
+  background: var(--dark-transparent);
+}
+
+/* Performance optimizations for all devices */
+.gallery-asset {
+  /* Optimize image rendering */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  
+  /* Prevent layout shifts */
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .gallery-asset {
+    transition: none;
+  }
+  
+  .load-more-btn {
+    transition: none;
   }
 }

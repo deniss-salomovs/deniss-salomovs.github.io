@@ -288,21 +288,20 @@ async function discoverArtAssets() {
     return [];
 }
 
-// Function to create gallery item
+// Function to create gallery item with lazy loading
 function createGalleryItem(assetPath, fileName) {
     const fileExtension = fileName.split('.').pop().toLowerCase();
     const fullPath = assetPath + fileName;
     
     if (['mp4', 'mov', 'mkv'].includes(fileExtension)) {
         const video = document.createElement('video');
-        video.src = fullPath;
         video.controls = true;
         video.muted = true;
-        video.preload = 'metadata';
-        video.autoplay = true;
+        video.preload = 'none'; // Don't preload videos on mobile
         video.loop = true;
         video.className = 'gallery-asset';
         video.style.cursor = 'pointer';
+        video.setAttribute('data-src', fullPath); // Store source for lazy loading
         
         // Add click handler for lightbox
         video.addEventListener('click', function(e) {
@@ -323,11 +322,11 @@ function createGalleryItem(assetPath, fileName) {
         return video;
     } else {
         const img = document.createElement('img');
-        img.src = fullPath;
         img.alt = fileName;
-        img.loading = 'lazy';
         img.className = 'gallery-asset';
         img.style.cursor = 'pointer';
+        img.setAttribute('data-src', fullPath); // Store source for lazy loading
+        img.style.opacity = '0'; // Start invisible for smooth loading
         
         // Add click handler for lightbox
         img.addEventListener('click', function(e) {
@@ -343,6 +342,7 @@ function createGalleryItem(assetPath, fileName) {
         // Add error handling
         img.onerror = function() {
             console.error(`Failed to load image: ${fullPath}`);
+            img.style.opacity = '1'; // Show even if error
         };
         
         return img;
@@ -442,14 +442,59 @@ function fillColumnsWithAssets(gallery, assets, assetPath) {
     }
 }
 
+// Lazy loading observer
+let lazyObserver = null;
+
+function initLazyLoading() {
+    if (lazyObserver) return;
+    
+    lazyObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const element = entry.target;
+                const src = element.getAttribute('data-src');
+                
+                if (src) {
+                    if (element.tagName === 'IMG') {
+                        element.src = src;
+                        element.onload = () => {
+                            element.style.opacity = '1';
+                            element.style.transition = 'opacity 0.3s ease';
+                        };
+                    } else if (element.tagName === 'VIDEO') {
+                        element.src = src;
+                        element.preload = 'metadata';
+                    }
+                    element.removeAttribute('data-src');
+                    lazyObserver.unobserve(element);
+                }
+            }
+        });
+    }, {
+        rootMargin: '50px 0px', // Start loading 50px before element is visible
+        threshold: 0.1
+    });
+}
+
+// Function to get mobile-optimized asset limit
+function getAssetLimit() {
+    const isMobile = window.innerWidth <= 900;
+    return isMobile ? 20 : 50; // Limit assets on mobile
+}
+
 // Function to distribute assets (only called when breakpoint changes)
 function distributeAssets(gallery) {
     const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
     const assetPath = gallery.getAttribute('data-asset-path') || '';
     const breakpoint = getCurrentBreakpoint();
     const columnCount = getColumnCount(breakpoint);
+    const assetLimit = getAssetLimit();
     
     if (assets.length === 0) return;
+    
+    // Limit assets for mobile performance
+    const limitedAssets = assets.slice(0, assetLimit);
+    const hasMoreAssets = assets.length > assetLimit;
     
     // Clear existing columns
     gallery.innerHTML = '';
@@ -463,12 +508,53 @@ function distributeAssets(gallery) {
     
     // Fill columns: asset 1 goes to column 1, asset 2 to column 2, etc.
     const columns = gallery.querySelectorAll('.gallery-column');
-    assets.forEach((fileName, index) => {
+    limitedAssets.forEach((fileName, index) => {
         const columnIndex = index % columnCount;
         
         const item = createGalleryItem(assetPath, fileName);
         columns[columnIndex].appendChild(item);
+        
+        // Observe for lazy loading
+        if (lazyObserver) {
+            lazyObserver.observe(item);
+        }
     });
+    
+    // Add "Load More" button if there are more assets
+    if (hasMoreAssets) {
+        const loadMoreBtn = document.createElement('button');
+        loadMoreBtn.textContent = `Load More (${assets.length - assetLimit} remaining)`;
+        loadMoreBtn.className = 'load-more-btn';
+        loadMoreBtn.style.cssText = `
+            width: 100%;
+            padding: 1rem;
+            margin: 1rem 0;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        `;
+        
+        loadMoreBtn.addEventListener('click', () => {
+            // Load remaining assets
+            const remainingAssets = assets.slice(assetLimit);
+            remainingAssets.forEach((fileName, index) => {
+                const columnIndex = (assetLimit + index) % columnCount;
+                const item = createGalleryItem(assetPath, fileName);
+                columns[columnIndex].appendChild(item);
+                
+                if (lazyObserver) {
+                    lazyObserver.observe(item);
+                }
+            });
+            
+            loadMoreBtn.remove();
+        });
+        
+        gallery.appendChild(loadMoreBtn);
+    }
 }
 
 // Page navigation functionality
@@ -523,6 +609,9 @@ function setupNavigation() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize lazy loading
+    initLazyLoading();
+    
     // Setup navigation first
     setupNavigation();
     
