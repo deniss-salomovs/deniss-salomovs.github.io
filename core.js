@@ -159,8 +159,6 @@ projectsData.forEach(project => {
     projectConfig[project.id] = project.gallery;
 });
 
-// Debug: Log all project IDs
-console.log('All project IDs in projectConfig:', Object.keys(projectConfig));
 
 function generateProjectHTML(project) {
     const linksHTML = project.links.map(link => 
@@ -207,19 +205,15 @@ let assetsData = null;
 // Function to load assets from JSON file
 async function loadAssetsData() {
     if (assetsData) {
-        console.log('Using cached assets data');
         return assetsData;
     }
     
     try {
-        console.log('Fetching assets.json...');
         const response = await fetch('assets.json');
         if (response.ok) {
             assetsData = await response.json();
-            console.log('Successfully loaded assets.json:', assetsData);
             return assetsData;
         } else {
-            console.error('Failed to fetch assets.json, status:', response.status);
             return {};
         }
     } catch (error) {
@@ -271,51 +265,26 @@ async function scanDirectory(folderPath) {
 
 // Function to get assets for a project
 async function discoverAssets(projectName) {
-    console.log(`Looking for assets for project: ${projectName}`);
-    
     // First try to get from JSON file (works on GitHub Pages)
     const assets = await loadAssetsData();
     const projectFolder = projectName;
     
-    console.log(`Available projects in JSON:`, Object.keys(assets));
-    console.log(`Assets for ${projectName}:`, assets[projectFolder]);
-    
-    // Special debugging for king-pin
-    if (projectName === 'king-pin') {
-        console.log('=== KING PIN DEBUG ===');
-        console.log('Project name:', projectName);
-        console.log('Project folder:', projectFolder);
-        console.log('All JSON keys:', Object.keys(assets));
-        console.log('King pin assets:', assets['king-pin']);
-        console.log('King pin assets length:', assets['king-pin'] ? assets['king-pin'].length : 'undefined');
-        console.log('====================');
-    }
-    
     if (assets[projectFolder] && assets[projectFolder].length > 0) {
-        console.log(`Found ${assets[projectFolder].length} assets for ${projectName} from JSON`);
         return assets[projectFolder];
     }
     
-    console.log(`No assets found in JSON for ${projectName}`);
     return [];
 }
 
 // Function to get assets for Art page
 async function discoverArtAssets() {
-    console.log('Looking for art assets...');
-    
     // First try to get from JSON file (works on GitHub Pages)
     const assets = await loadAssetsData();
     
-    console.log('Available projects in JSON:', Object.keys(assets));
-    console.log('Art assets:', assets['personal-art']);
-    
     if (assets['personal-art'] && assets['personal-art'].length > 0) {
-        console.log(`Found ${assets['personal-art'].length} art assets from JSON`);
         return assets['personal-art'];
     }
     
-    console.log('No art assets found in JSON');
     return [];
 }
 
