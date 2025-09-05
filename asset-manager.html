@@ -4,7 +4,8 @@
     <title>Asset Manager</title>
 </head>
 <body>
-    <button onclick="scanAndDownload()">Generate assets.json</button>
+    <button onclick="scanAndDownload()">Generate assets.json (Local)</button>
+    <button onclick="generateForGitHub()">Generate assets.json (GitHub Pages)</button>
     <div id="status"></div>
 
     <script>
@@ -64,7 +65,7 @@
         }
 
         async function scanAndDownload() {
-            showStatus('Scanning...');
+            showStatus('Scanning local directories...');
             
             const results = {};
             for (const project of projects) {
@@ -84,7 +85,54 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            showStatus('Downloaded assets.json');
+            showStatus('Downloaded assets.json for local development');
+        }
+
+        async function generateForGitHub() {
+            showStatus('Generating assets.json for GitHub Pages...');
+            
+            // Use the existing assets.json as base and update it
+            try {
+                const response = await fetch('assets.json');
+                let results = {};
+                
+                if (response.ok) {
+                    results = await response.json();
+                    showStatus('Loaded existing assets.json, updating...');
+                } else {
+                    showStatus('No existing assets.json found, creating new one...');
+                }
+                
+                // Try to scan each project and update the results
+                for (const project of projects) {
+                    try {
+                        const assets = await scanProject(project);
+                        if (assets.length > 0) {
+                            results[project.id] = assets;
+                            showStatus(`Updated ${project.id}: ${assets.length} assets found`);
+                        }
+                    } catch (error) {
+                        showStatus(`Could not scan ${project.id}, keeping existing data`);
+                    }
+                }
+                
+                const jsonString = JSON.stringify(results, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'assets.json';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showStatus('Generated assets.json for GitHub Pages - ready to commit!');
+                
+            } catch (error) {
+                showStatus('Error: ' + error.message);
+            }
         }
     </script>
 </body>

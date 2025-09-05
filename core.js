@@ -198,7 +198,30 @@ function renderProjects() {
     gameJamsContainer.innerHTML = gameJams.map(project => generateProjectHTML(project)).join('');
 }
 
-// Function to scan directory and get assets
+// Asset data cache
+let assetsData = null;
+
+// Function to load assets from JSON file
+async function loadAssetsData() {
+    if (assetsData) {
+        return assetsData;
+    }
+    
+    try {
+        const response = await fetch('assets.json');
+        if (response.ok) {
+            assetsData = await response.json();
+            return assetsData;
+        } else {
+            return {};
+        }
+    } catch (error) {
+        console.error('Error loading assets data:', error);
+        return {};
+    }
+}
+
+// Function to scan directory and get assets (fallback for local development)
 async function scanDirectory(folderPath) {
     try {
         const response = await fetch(folderPath);
@@ -241,14 +264,30 @@ async function scanDirectory(folderPath) {
 
 // Function to get assets for a project
 async function discoverAssets(projectName) {
+    // First try to get from JSON file (works on GitHub Pages)
+    const assets = await loadAssetsData();
+    const projectFolder = projectName;
+    
+    if (assets[projectFolder] && assets[projectFolder].length > 0) {
+        return assets[projectFolder];
+    }
+    
+    // Fallback to directory scanning (works on local development)
     const project = projectConfig[projectName];
     const projectPath = project.path;
-    
     return await scanDirectory(projectPath);
 }
 
 // Function to get assets for Art page
 async function discoverArtAssets() {
+    // First try to get from JSON file (works on GitHub Pages)
+    const assets = await loadAssetsData();
+    
+    if (assets['personal-art'] && assets['personal-art'].length > 0) {
+        return assets['personal-art'];
+    }
+    
+    // Fallback to directory scanning (works on local development)
     return await scanDirectory('assets/personal-art/');
 }
 
