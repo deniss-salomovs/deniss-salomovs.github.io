@@ -159,6 +159,9 @@ projectsData.forEach(project => {
     projectConfig[project.id] = project.gallery;
 });
 
+// Debug: Log all project IDs
+console.log('All project IDs in projectConfig:', Object.keys(projectConfig));
+
 function generateProjectHTML(project) {
     const linksHTML = project.links.map(link => 
         `<a href="${link.url}" target="_blank"><img src="${link.icon}" class="project-icon"></a>`
