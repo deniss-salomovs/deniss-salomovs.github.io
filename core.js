@@ -277,6 +277,17 @@ async function discoverAssets(projectName) {
     console.log(`Available projects in JSON:`, Object.keys(assets));
     console.log(`Assets for ${projectName}:`, assets[projectFolder]);
     
+    // Special debugging for king-pin
+    if (projectName === 'king-pin') {
+        console.log('=== KING PIN DEBUG ===');
+        console.log('Project name:', projectName);
+        console.log('Project folder:', projectFolder);
+        console.log('All JSON keys:', Object.keys(assets));
+        console.log('King pin assets:', assets['king-pin']);
+        console.log('King pin assets length:', assets['king-pin'] ? assets['king-pin'].length : 'undefined');
+        console.log('====================');
+    }
+    
     if (assets[projectFolder] && assets[projectFolder].length > 0) {
         console.log(`Found ${assets[projectFolder].length} assets for ${projectName} from JSON`);
         return assets[projectFolder];
