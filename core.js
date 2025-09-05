@@ -268,37 +268,41 @@ async function scanDirectory(folderPath) {
 
 // Function to get assets for a project
 async function discoverAssets(projectName) {
+    console.log(`Looking for assets for project: ${projectName}`);
+    
     // First try to get from JSON file (works on GitHub Pages)
     const assets = await loadAssetsData();
     const projectFolder = projectName;
     
-    console.log(`Looking for assets for project: ${projectName}`);
     console.log(`Available projects in JSON:`, Object.keys(assets));
     console.log(`Assets for ${projectName}:`, assets[projectFolder]);
     
     if (assets[projectFolder] && assets[projectFolder].length > 0) {
-        console.log(`Found ${assets[projectFolder].length} assets for ${projectName}`);
+        console.log(`Found ${assets[projectFolder].length} assets for ${projectName} from JSON`);
         return assets[projectFolder];
     }
     
-    console.log(`No assets found in JSON for ${projectName}, trying directory scanning...`);
-    // Fallback to directory scanning (works on local development)
-    const project = projectConfig[projectName];
-    const projectPath = project.path;
-    return await scanDirectory(projectPath);
+    console.log(`No assets found in JSON for ${projectName}`);
+    return [];
 }
 
 // Function to get assets for Art page
 async function discoverArtAssets() {
+    console.log('Looking for art assets...');
+    
     // First try to get from JSON file (works on GitHub Pages)
     const assets = await loadAssetsData();
     
+    console.log('Available projects in JSON:', Object.keys(assets));
+    console.log('Art assets:', assets['personal-art']);
+    
     if (assets['personal-art'] && assets['personal-art'].length > 0) {
+        console.log(`Found ${assets['personal-art'].length} art assets from JSON`);
         return assets['personal-art'];
     }
     
-    // Fallback to directory scanning (works on local development)
-    return await scanDirectory('assets/personal-art/');
+    console.log('No art assets found in JSON');
+    return [];
 }
 
 // Function to create gallery item
