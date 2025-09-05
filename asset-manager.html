@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Asset Manager</title>
+</head>
+<body>
+    <button onclick="scanAndDownload()">Generate assets.json</button>
+    <div id="status"></div>
+
+    <script>
+        const projects = [
+            { id: 'ether', path: 'assets/projects/ether/' },
+            { id: 'dicechess', path: 'assets/projects/dicechess/' },
+            { id: 'shelter', path: 'assets/projects/shelter/' },
+            { id: 'all-in-one', path: 'assets/projects/jams/all-in-one/' },
+            { id: 'king-pin', path: 'assets/projects/jams/king-pin/' },
+            { id: 'dr-boo', path: 'assets/projects/jams/dr-boo/' },
+            { id: 'funkin', path: 'assets/projects/jams/funkin/' },
+            { id: 'r0000m', path: 'assets/projects/jams/r0000m/' },
+            { id: 'personal-art', path: 'assets/personal-art/' }
+        ];
+
+        const SUPPORTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.webm', '.avi', '.mkv'];
+
+        function showStatus(message) {
+            document.getElementById('status').innerHTML = message;
+        }
+
+        async function scanProject(project) {
+            try {
+                const response = await fetch(project.path);
+                if (!response.ok) return [];
+                
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const links = doc.querySelectorAll('a[href]');
+                
+                const assets = [];
+                links.forEach(link => {
+                    const fileName = link.getAttribute('href');
+                    if (fileName && fileName !== '../' && fileName !== './') {
+                        const ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+                        if (SUPPORTED_EXTENSIONS.includes(ext)) {
+                            const isNotHeader = !fileName.toLowerCase().includes('header');
+                            if (isNotHeader) {
+                                const justFileName = fileName.split('/').pop();
+                                assets.push(justFileName);
+                            }
+                        }
+                    }
+                });
+                
+                assets.sort((a, b) => {
+                    const aNum = parseInt(a.match(/\d+/)?.[0] || '999');
+                    const bNum = parseInt(b.match(/\d+/)?.[0] || '999');
+                    return aNum - bNum;
+                });
+                
+                return assets;
+            } catch (error) {
+                return [];
+            }
+        }
+
+        async function scanAndDownload() {
+            showStatus('Scanning...');
+            
+            const results = {};
+            for (const project of projects) {
+                const assets = await scanProject(project);
+                results[project.id] = assets;
+            }
+            
+            const jsonString = JSON.stringify(results, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'assets.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showStatus('Downloaded assets.json');
+        }
+    </script>
+</body>
+</html>
