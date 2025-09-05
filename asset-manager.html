@@ -46,7 +46,9 @@
                             const isNotHeader = !fileName.toLowerCase().includes('header');
                             if (isNotHeader) {
                                 const justFileName = fileName.split('/').pop();
-                                assets.push(justFileName);
+                                // Decode URL encoding (e.g., %20 -> space)
+                                const decodedFileName = decodeURIComponent(justFileName);
+                                assets.push(decodedFileName);
                             }
                         }
                     }
