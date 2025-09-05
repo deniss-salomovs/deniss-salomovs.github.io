@@ -204,15 +204,19 @@ let assetsData = null;
 // Function to load assets from JSON file
 async function loadAssetsData() {
     if (assetsData) {
+        console.log('Using cached assets data');
         return assetsData;
     }
     
     try {
+        console.log('Fetching assets.json...');
         const response = await fetch('assets.json');
         if (response.ok) {
             assetsData = await response.json();
+            console.log('Successfully loaded assets.json:', assetsData);
             return assetsData;
         } else {
+            console.error('Failed to fetch assets.json, status:', response.status);
             return {};
         }
     } catch (error) {
@@ -268,10 +272,16 @@ async function discoverAssets(projectName) {
     const assets = await loadAssetsData();
     const projectFolder = projectName;
     
+    console.log(`Looking for assets for project: ${projectName}`);
+    console.log(`Available projects in JSON:`, Object.keys(assets));
+    console.log(`Assets for ${projectName}:`, assets[projectFolder]);
+    
     if (assets[projectFolder] && assets[projectFolder].length > 0) {
+        console.log(`Found ${assets[projectFolder].length} assets for ${projectName}`);
         return assets[projectFolder];
     }
     
+    console.log(`No assets found in JSON for ${projectName}, trying directory scanning...`);
     // Fallback to directory scanning (works on local development)
     const project = projectConfig[projectName];
     const projectPath = project.path;
