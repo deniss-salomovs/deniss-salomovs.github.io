@@ -3,9 +3,9 @@ const projectsData = [
         id: 'ether',
         name: 'Ether',
         type: 'project',
-        role: 'Digital/Pixel artist',
+        role: 'Lead Pixel Artist, Animator, Community Support',
         year: '15 Aug, 2024',
-        description: 'Description of the project',
+        description: 'First commercial release on Steam. Served as lead pixel artist and animator in an international team, gaining strong experience in finishing a complete product.',
         headerImage: 'assets/projects/ether/header.png',
         links: [
             {
@@ -23,7 +23,7 @@ const projectsData = [
         type: 'project',
         role: 'Digital artist, Designer',
         year: '2023-present',
-        description: 'Description of the project',
+        description: 'Core professional experience working on an ever-evolving web game, involving a wide range of technical and design challenges.',
         headerImage: 'assets/projects/dicechess/header.png',
         links: [
             {
@@ -39,9 +39,9 @@ const projectsData = [
         id: 'shelter',
         name: 'Shelter',
         type: 'project',
-        role: 'Digital artist, Designer',
+        role: 'Lead Digital Artist, Designer, Partner',
         year: '14 Mar 2022',
-        description: 'Description of the project',
+        description: 'A small startup among friends that unexpectedly grew to over 1 million downloads on Google Play and a community of more than 60,000 users on Discord.',
         headerImage: 'assets/projects/shelter/header.png',
         links: [
             {
@@ -68,7 +68,7 @@ const projectsData = [
         type: 'gamejam',
         role: 'Pixel artist',
         year: 'Dec 14, 2023',
-        description: 'A game jam project',
+        description: 'The latest and most memorable game jam entry, made for the theme "MODE." Left a lasting impression and brought a lot of new experience.',
         headerImage: 'assets/projects/jams/all-in-one/header.gif',
         links: [
             {
@@ -86,7 +86,7 @@ const projectsData = [
         type: 'gamejam',
         role: 'Pixel artist, Music/SFX',
         year: 'Jul 09, 2023',
-        description: 'A game jam project',
+        description: 'An entry for the GMTK Game Jam 2023. Theme: "Roles Reversed."',
         headerImage: 'assets/projects/jams/king-pin/header.png',
         links: [
             {
@@ -104,7 +104,7 @@ const projectsData = [
         type: 'gamejam',
         role: 'Pixel artist, Music/SFX',
         year: 'Apr 24, 2023',
-        description: 'A game jam project',
+        description: 'First completed project using 3D graphics. Theme: "Take a Deep Breath."',
         headerImage: 'assets/projects/jams/dr-boo/header.gif',
         links: [
             {
@@ -122,7 +122,7 @@ const projectsData = [
         type: 'gamejam',
         role: 'Pixel artist',
         year: 'May 30, 2022',
-        description: 'A spooky game jam project',
+        description: 'A score-based rhythm game about an alien orchestra, made for the theme "Gravity is Under Your Control."',
         headerImage: 'assets/projects/jams/funkin/header.gif',
         links: [
             {
@@ -140,7 +140,7 @@ const projectsData = [
         type: 'gamejam',
         role: 'Pixel artist, Music/SFX',
         year: 'Jul 12, 2021',
-        description: 'A spooky game jam project',
+        description: 'First game jam experience made for the theme "One Room." The project that sparked my interest in creating games under tight deadlines.',
         headerImage: 'assets/projects/jams/r0000m/header.png',
         links: [
             {
@@ -515,11 +515,35 @@ function setupNavigation() {
         link.addEventListener('click', function() {
             const pageId = this.getAttribute('data-page');
             showPage(pageId);
+            
+            // Close mobile menu if open
+            const navLinksContainer = document.querySelector('.nav-links');
+            if (navLinksContainer) {
+                navLinksContainer.classList.remove('mobile-open');
+            }
         });
         
         // Make nav links clickable
         link.style.cursor = 'pointer';
     });
+    
+    // Setup mobile menu toggle
+    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+    const navLinksContainer = document.querySelector('.nav-links');
+    
+    if (mobileMenuToggle && navLinksContainer) {
+        mobileMenuToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            navLinksContainer.classList.toggle('mobile-open');
+        });
+        
+        // Close mobile menu when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!navLinksContainer.contains(e.target) && !mobileMenuToggle.contains(e.target)) {
+                navLinksContainer.classList.remove('mobile-open');
+            }
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
