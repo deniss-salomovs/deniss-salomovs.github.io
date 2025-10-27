@@ -527,6 +527,14 @@ function setupNavigation() {
         link.style.cursor = 'pointer';
     });
     
+    // Setup home link functionality
+    const homeLink = document.getElementById('home-link');
+    if (homeLink) {
+        homeLink.addEventListener('click', function() {
+            window.location.reload();
+        });
+    }
+    
     // Setup mobile menu toggle
     const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
     const navLinksContainer = document.querySelector('.nav-links');

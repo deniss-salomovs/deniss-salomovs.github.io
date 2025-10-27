@@ -403,6 +403,8 @@ h3 {
     right: 0;
     background-color: var(--bright);
     padding: var(--spacing-small);
+    padding-left: var(--container-padding);
+    padding-right: var(--container-padding);
     z-index: 1000;
     text-align: right;
     border-bottom: var(--border-highlight);
