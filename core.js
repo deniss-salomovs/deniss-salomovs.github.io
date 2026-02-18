@@ -506,7 +506,7 @@ function showPage(pageId) {
     if (pageId === 'art') {
         populateArtGallery();
     }
-}
+}   
 
 function setupNavigation() {
     const navLinks = document.querySelectorAll('.nav-link');
@@ -555,18 +555,9 @@ function setupNavigation() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Setup navigation first
     setupNavigation();
-    
-    // Show projects page by default
     showPage('projects');
-
     renderProjects();
-    
-    // Only populate the first gallery initially
-    const firstProjectName = Object.keys(projectConfig)[0];
-    populateGallery(firstProjectName);
-    
     setupProjectContainers();
     setupLightbox();
 });
@@ -587,11 +578,6 @@ function setupProjectContainers() {
         if (!gallery) return;
         
         gallery.classList.add('gallery-hidden');
-        
-        if (container === projectContainers[0]) {
-            gallery.classList.remove('gallery-hidden');
-            container.classList.add('expanded');
-        }
         
         let isMouseOverGallery = false;
         
