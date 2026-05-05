@@ -201,6 +201,7 @@ function renderProjects() {
 
 // Asset data cache
 let assetsData = null;
+let galleryAssetObserver = null;
 
 // Function to load assets from JSON file
 async function loadAssetsData() {
@@ -291,18 +292,19 @@ async function discoverArtAssets() {
 // Function to create gallery item
 function createGalleryItem(assetPath, fileName) {
     const fileExtension = fileName.split('.').pop().toLowerCase();
-    const fullPath = assetPath + fileName;
+    const fullPath = buildAssetUrl(assetPath, fileName);
     
     if (['mp4', 'mov', 'mkv'].includes(fileExtension)) {
         const video = document.createElement('video');
-        video.src = fullPath;
         video.controls = true;
         video.muted = true;
-        video.preload = 'metadata';
-        video.autoplay = true;
+        video.preload = 'none';
+        video.playsInline = true;
         video.loop = true;
         video.className = 'gallery-asset';
         video.style.cursor = 'pointer';
+        video.setAttribute('data-src', fullPath);
+        registerLazyGalleryAsset(video);
         
         // Add click handler for lightbox
         video.addEventListener('click', function(e) {
@@ -323,11 +325,12 @@ function createGalleryItem(assetPath, fileName) {
         return video;
     } else {
         const img = document.createElement('img');
-        img.src = fullPath;
         img.alt = fileName;
         img.loading = 'lazy';
         img.className = 'gallery-asset';
         img.style.cursor = 'pointer';
+        img.setAttribute('data-src', fullPath);
+        registerLazyGalleryAsset(img);
         
         // Add click handler for lightbox
         img.addEventListener('click', function(e) {
@@ -347,6 +350,32 @@ function createGalleryItem(assetPath, fileName) {
         
         return img;
     }
+}
+
+function buildAssetUrl(assetPath, fileName) {
+    return assetPath + encodeURIComponent(fileName).replace(/%2F/g, '/');
+}
+
+function registerLazyGalleryAsset(element) {
+    if (!galleryAssetObserver) {
+        galleryAssetObserver = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const target = entry.target;
+                    const src = target.getAttribute('data-src');
+                    if (src && !target.getAttribute('src')) {
+                        target.setAttribute('src', src);
+                    }
+                    galleryAssetObserver.unobserve(target);
+                }
+            });
+        }, {
+            rootMargin: '300px 0px',
+            threshold: 0.01
+        });
+    }
+
+    galleryAssetObserver.observe(element);
 }
 
 async function populateGallery(projectName) {
@@ -737,7 +766,7 @@ function navigateToAsset(direction) {
     const fileName = currentAssets[newIndex];
     const fileExtension = fileName.split('.').pop().toLowerCase();
     const isVideo = ['mp4', 'mov', 'mkv'].includes(fileExtension);
-    const fullPath = currentAssetPath + fileName;
+    const fullPath = buildAssetUrl(currentAssetPath, fileName);
     
     // Update current index
     currentAssetIndex = newIndex;
