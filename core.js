@@ -298,6 +298,27 @@ function isVideoFile(fileName) {
     return VIDEO_EXTENSIONS.includes(extension);
 }
 
+// Single source of truth for the dual-shape assets.json schema.
+// Accepts either a legacy bare-string filename ("1.gif") or the new
+// { full, thumb, type } object emitted by asset-optimizer / asset-manager.
+// Always returns { full, thumb, type }. For legacy entries `thumb` falls
+// back to `full` so the grid still renders something while migration runs.
+function normalizeAssetEntry(entry) {
+    if (entry && typeof entry === 'object') {
+        const full = entry.full;
+        const thumb = entry.thumb || entry.full;
+        const type = entry.type || (isVideoFile(full) ? 'video' : 'image');
+        return { full, thumb, type };
+    }
+    // Legacy: bare filename string.
+    const fileName = entry;
+    return {
+        full: fileName,
+        thumb: fileName,
+        type: isVideoFile(fileName) ? 'video' : 'image'
+    };
+}
+
 function startGalleryVideo(video) {
     video.muted = true;
     video.defaultMuted = true;
@@ -328,10 +349,13 @@ function unloadAllProjectGalleries() {
     document.querySelectorAll('.container-project .gallery-grid').forEach(unloadGallery);
 }
 
-function createGalleryItem(assetPath, fileName) {
-    const fullPath = buildAssetUrl(assetPath, fileName);
-    
-    if (isVideoFile(fileName)) {
+function createGalleryItem(assetPath, entry, assetIndex) {
+    const { full, thumb, type } = normalizeAssetEntry(entry);
+    const thumbPath = buildAssetUrl(assetPath, thumb);
+    const fullPath = buildAssetUrl(assetPath, full);
+    const isVideo = type === 'video';
+
+    if (isVideo) {
         const video = document.createElement('video');
         video.className = 'gallery-asset';
         video.controls = true;
@@ -342,38 +366,41 @@ function createGalleryItem(assetPath, fileName) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
-        video.preload = 'auto';
+        // Grid videos: only fetch metadata, source points at the lightweight thumb.
+        video.preload = 'metadata';
         video.style.cursor = 'pointer';
-        video.src = fullPath;
+        video.src = thumbPath;
         startGalleryVideo(video);
-        
+
         video.addEventListener('click', function(e) {
             e.stopPropagation();
             const gallery = video.closest('.gallery-grid');
             const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
             const galleryAssetPath = gallery.getAttribute('data-asset-path') || '';
-            const assetIndex = assets.indexOf(fileName);
+            // Lightbox always opens the full-quality source.
             openLightbox(fullPath, true, assets, assetIndex, galleryAssetPath);
         });
-        
+
         return video;
     }
 
     const img = document.createElement('img');
-    img.alt = fileName;
+    img.alt = full;
     img.className = 'gallery-asset';
+    img.loading = 'lazy';
+    img.decoding = 'async';
     img.style.cursor = 'pointer';
-    img.src = fullPath;
-    
+    img.src = thumbPath;
+
     img.addEventListener('click', function(e) {
         e.stopPropagation();
         const gallery = img.closest('.gallery-grid');
         const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
         const galleryAssetPath = gallery.getAttribute('data-asset-path') || '';
-        const assetIndex = assets.indexOf(fileName);
+        // Lightbox always opens the full-quality source.
         openLightbox(fullPath, false, assets, assetIndex, galleryAssetPath);
     });
-    
+
     return img;
 }
 
@@ -484,9 +511,9 @@ function distributeAssets(gallery) {
     }
     
     const columns = gallery.querySelectorAll('.gallery-column');
-    assets.forEach((fileName, index) => {
+    assets.forEach((entry, index) => {
         const columnIndex = index % columnCount;
-        const item = createGalleryItem(assetPath, fileName);
+        const item = createGalleryItem(assetPath, entry, index);
         columns[columnIndex].appendChild(item);
     });
 }
@@ -773,11 +800,10 @@ function navigateToAsset(direction) {
         return; // Can't navigate further
     }
     
-    const fileName = currentAssets[newIndex];
-    const fileExtension = fileName.split('.').pop().toLowerCase();
-    const isVideo = VIDEO_EXTENSIONS.includes(fileExtension);
-    const fullPath = buildAssetUrl(currentAssetPath, fileName);
-    
+    const { full, type } = normalizeAssetEntry(currentAssets[newIndex]);
+    const isVideo = type === 'video';
+    const fullPath = buildAssetUrl(currentAssetPath, full);
+
     // Update current index
     currentAssetIndex = newIndex;
     
@@ -909,6 +935,8 @@ function setupLightbox() {
         if (!isDragging) {
             if (currentScale === 1) {
                 currentScale = 2;
+                // Zoom branch: lightbox already shows the `full` webp (highest tier we ship).
+                // If we ever add a higher-resolution tier (e.g. `original`), swap lightboxImage.src here.
             } else {
                 currentScale = 1;
                 currentTranslateX = 0;

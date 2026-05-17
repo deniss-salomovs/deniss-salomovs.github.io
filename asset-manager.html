@@ -22,44 +22,120 @@
         ];
 
         const SUPPORTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.webm', '.avi', '.mkv'];
+        const VIDEO_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
+        // Source extensions that asset-optimizer converts to webp/webm thumb+full siblings.
+        const SOURCE_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif'];
+        const SOURCE_VIDEO_EXTENSIONS = ['mp4', 'mov', 'mkv', 'avi'];
 
         function showStatus(message) {
             document.getElementById('status').innerHTML = message;
+        }
+
+        function getStem(fileName) {
+            const dot = fileName.lastIndexOf('.');
+            return dot === -1 ? fileName : fileName.substring(0, dot);
+        }
+
+        function getExt(fileName) {
+            const dot = fileName.lastIndexOf('.');
+            return dot === -1 ? '' : fileName.substring(dot + 1).toLowerCase();
+        }
+
+        function isThumbFile(fileName) {
+            // Matches `<stem>.thumb.<ext>` (e.g. 1.thumb.webp, foo.thumb.webm).
+            return /\.thumb\.[^.]+$/i.test(fileName);
         }
 
         async function scanProject(project) {
             try {
                 const response = await fetch(project.path);
                 if (!response.ok) return [];
-                
+
                 const html = await response.text();
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
                 const links = doc.querySelectorAll('a[href]');
-                
-                const assets = [];
+
+                // Step 1: collect every file in the folder (decoded, headers excluded, thumbs excluded).
+                // We keep thumbs in a lookup set so we can pair them up below.
+                const allFiles = [];
+                const thumbSet = new Set();
                 links.forEach(link => {
-                    const fileName = link.getAttribute('href');
-                    if (fileName && fileName !== '../' && fileName !== './') {
-                        const ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
-                        if (SUPPORTED_EXTENSIONS.includes(ext)) {
-                            const isNotHeader = !fileName.toLowerCase().includes('header');
-                            if (isNotHeader) {
-                                const justFileName = fileName.split('/').pop();
-                                // Decode URL encoding (e.g., %20 -> space)
-                                const decodedFileName = decodeURIComponent(justFileName);
-                                assets.push(decodedFileName);
-                            }
-                        }
+                    const href = link.getAttribute('href');
+                    if (!href || href === '../' || href === './') return;
+                    const ext = href.toLowerCase().substring(href.lastIndexOf('.'));
+                    if (!SUPPORTED_EXTENSIONS.includes(ext)) return;
+                    const justFileName = decodeURIComponent(href.split('/').pop());
+                    if (justFileName.toLowerCase().includes('header')) return;
+                    if (isThumbFile(justFileName)) {
+                        thumbSet.add(justFileName);
+                        return;
+                    }
+                    allFiles.push(justFileName);
+                });
+
+                // Step 2: group by stem so we can pick the canonical "full" per asset.
+                // If a stem has both a source (png/jpg/gif/mp4/...) and a webp/webm sibling,
+                // we treat the optimized webp/webm as the full and the source is dropped.
+                const byStem = new Map();
+                allFiles.forEach(fn => {
+                    const stem = getStem(fn);
+                    if (!byStem.has(stem)) byStem.set(stem, []);
+                    byStem.get(stem).push(fn);
+                });
+
+                const assets = [];
+                byStem.forEach((files, stem) => {
+                    // Prefer optimized siblings (webp for images, webm for videos) when present.
+                    const webp = files.find(f => getExt(f) === 'webp');
+                    const webm = files.find(f => getExt(f) === 'webm');
+                    const sourceImage = files.find(f => SOURCE_IMAGE_EXTENSIONS.includes(getExt(f)));
+                    const sourceVideo = files.find(f => SOURCE_VIDEO_EXTENSIONS.includes(getExt(f)));
+
+                    let full = null;
+                    let type = null;
+
+                    if (webm) {
+                        full = webm;
+                        type = 'video';
+                    } else if (webp) {
+                        full = webp;
+                        // webp can be a still image OR an animated webp (converted from gif).
+                        // Either way the consumer renders it via <img>, so type is image.
+                        type = 'image';
+                    } else if (sourceVideo) {
+                        full = sourceVideo;
+                        type = 'video';
+                    } else if (sourceImage) {
+                        full = sourceImage;
+                        type = 'image';
+                    } else if (files.length > 0) {
+                        full = files[0];
+                        type = VIDEO_EXTENSIONS.includes(getExt(full)) ? 'video' : 'image';
+                    }
+
+                    if (!full) return;
+
+                    // Look for the matching thumb sibling: `<stem>.thumb.<ext-of-full>`.
+                    const thumbName = `${stem}.thumb.${getExt(full)}`;
+                    if (thumbSet.has(thumbName)) {
+                        assets.push({ full, thumb: thumbName, type });
+                    } else {
+                        // No thumb yet → emit legacy bare-string form so the consumer's
+                        // fallback path (thumb === full) handles it.
+                        assets.push(full);
                     }
                 });
-                
+
+                // Sort by leading number in the stem (matches the legacy ordering).
                 assets.sort((a, b) => {
-                    const aNum = parseInt(a.match(/\d+/)?.[0] || '999');
-                    const bNum = parseInt(b.match(/\d+/)?.[0] || '999');
+                    const aName = typeof a === 'string' ? a : a.full;
+                    const bName = typeof b === 'string' ? b : b.full;
+                    const aNum = parseInt(aName.match(/\d+/)?.[0] || '999');
+                    const bNum = parseInt(bName.match(/\d+/)?.[0] || '999');
                     return aNum - bNum;
                 });
-                
+
                 return assets;
             } catch (error) {
                 return [];
