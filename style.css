@@ -267,6 +267,12 @@ h3 {
 .gallery-asset {
   border-radius: var(--border-radius-small);
   width: 100%;
+  display: block;
+  height: auto;
+}
+
+video.gallery-asset {
+  background-color: var(--dark);
 }
 
 /* Lightbox */

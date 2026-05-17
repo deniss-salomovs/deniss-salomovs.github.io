@@ -289,78 +289,80 @@ async function discoverArtAssets() {
     return [];
 }
 
-// Function to create gallery item
+function buildAssetUrl(assetPath, fileName) {
+    return assetPath + fileName;
+}
+
+function startGalleryVideo(video) {
+    const play = () => video.play().catch(() => {});
+    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        play();
+        return;
+    }
+    video.addEventListener('loadeddata', play, { once: true });
+    video.addEventListener('canplay', play, { once: true });
+    play();
+}
+
 function createGalleryItem(assetPath, fileName) {
     const fileExtension = fileName.split('.').pop().toLowerCase();
     const fullPath = buildAssetUrl(assetPath, fileName);
     
     if (VIDEO_EXTENSIONS.includes(fileExtension)) {
         const video = document.createElement('video');
+        video.className = 'gallery-asset';
         video.controls = true;
         video.muted = true;
+        video.defaultMuted = true;
         video.autoplay = true;
         video.loop = true;
         video.playsInline = true;
-        video.preload = 'none';
-        video.className = 'gallery-asset';
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.preload = 'auto';
         video.style.cursor = 'pointer';
-        video.setAttribute('data-src', fullPath);
+
+        video.src = fullPath;
+        video.load();
+        startGalleryVideo(video);
         
         video.addEventListener('click', function(e) {
             e.stopPropagation();
             const gallery = video.closest('.gallery-grid');
             const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
-            const assetPath = gallery.getAttribute('data-asset-path') || '';
+            const galleryAssetPath = gallery.getAttribute('data-asset-path') || '';
             const assetIndex = assets.indexOf(fileName);
-            openLightbox(fullPath, true, assets, assetIndex, assetPath);
+            openLightbox(fullPath, true, assets, assetIndex, galleryAssetPath);
         });
         
         return video;
-    } else {
-        const img = document.createElement('img');
-        img.alt = fileName;
-        img.decoding = 'async';
-        img.className = 'gallery-asset';
-        img.style.cursor = 'pointer';
-        img.setAttribute('data-src', fullPath);
-        
-        img.addEventListener('click', function(e) {
-            e.stopPropagation();
-            const gallery = img.closest('.gallery-grid');
-            const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
-            const assetPath = gallery.getAttribute('data-asset-path') || '';
-            const assetIndex = assets.indexOf(fileName);
-            openLightbox(fullPath, false, assets, assetIndex, assetPath);
-        });
-        
-        return img;
     }
+
+    const img = document.createElement('img');
+    img.alt = fileName;
+    img.className = 'gallery-asset';
+    img.loading = 'eager';
+    img.decoding = 'async';
+    img.src = fullPath;
+    img.style.cursor = 'pointer';
+    
+    img.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const gallery = img.closest('.gallery-grid');
+        const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
+        const galleryAssetPath = gallery.getAttribute('data-asset-path') || '';
+        const assetIndex = assets.indexOf(fileName);
+        openLightbox(fullPath, false, assets, assetIndex, galleryAssetPath);
+    });
+    
+    return img;
 }
 
-function buildAssetUrl(assetPath, fileName) {
-    return assetPath + encodeURIComponent(fileName).replace(/%2F/g, '/');
-}
-
-// Load every asset in a gallery at once (only call for visible/open galleries).
-function activateGalleryMedia(gallery) {
+function resumeGalleryVideos(gallery) {
     if (!gallery || gallery.classList.contains('gallery-hidden')) {
         return;
     }
-
-    gallery.querySelectorAll('img.gallery-asset[data-src]').forEach(img => {
-        img.src = img.getAttribute('data-src');
-        img.removeAttribute('data-src');
-    });
-
-    gallery.querySelectorAll('video.gallery-asset').forEach(video => {
-        const pendingSrc = video.getAttribute('data-src');
-        if (pendingSrc) {
-            video.src = pendingSrc;
-            video.removeAttribute('data-src');
-        }
-        video.load();
-        video.play().catch(() => {});
-    });
+    gallery.querySelectorAll('video.gallery-asset').forEach(startGalleryVideo);
 }
 
 function pauseGalleryMedia(gallery) {
@@ -368,11 +370,24 @@ function pauseGalleryMedia(gallery) {
     gallery.querySelectorAll('video.gallery-asset').forEach(video => video.pause());
 }
 
+function warmGalleryAssets(assetPath, assets) {
+    assets.forEach(fileName => {
+        const url = buildAssetUrl(assetPath, fileName);
+        const ext = fileName.split('.').pop().toLowerCase();
+        if (VIDEO_EXTENSIONS.includes(ext)) {
+            return;
+        }
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'image';
+        link.href = url;
+        document.head.appendChild(link);
+    });
+}
+
 async function populateGallery(projectName) {
     const gallery = document.getElementById(`${projectName}-gallery`);
     if (!gallery) return;
-    
-    gallery.innerHTML = '<div class="loading-state">Loading gallery...</div>';
     
     try {
         const assets = await discoverAssets(projectName);
@@ -382,12 +397,11 @@ async function populateGallery(projectName) {
             return;
         }
         
-        gallery.innerHTML = '';
-        
-        // Add discovered assets to gallery with column-filling logic
         const project = projectConfig[projectName];
+        warmGalleryAssets(project.path, assets);
+        gallery.innerHTML = '';
         fillColumnsWithAssets(gallery, assets, project.path);
-        activateGalleryMedia(gallery);
+        resumeGalleryVideos(gallery);
         
     } catch (error) {
         console.error(`Error loading gallery for ${projectName}:`, error);
@@ -399,8 +413,6 @@ async function populateArtGallery() {
     const gallery = document.getElementById('art-gallery');
     if (!gallery) return;
     
-    gallery.innerHTML = '<div class="loading-state">Loading art gallery...</div>';
-    
     try {
         const assets = await discoverArtAssets();
         
@@ -409,11 +421,10 @@ async function populateArtGallery() {
             return;
         }
         
+        warmGalleryAssets('assets/personal-art/', assets);
         gallery.innerHTML = '';
-        
-        // Use the same column-filling logic as projects
         fillColumnsWithAssets(gallery, assets, 'assets/personal-art/');
-        activateGalleryMedia(gallery);
+        resumeGalleryVideos(gallery);
         
     } catch (error) {
         console.error(`Error loading art gallery:`, error);
@@ -492,7 +503,7 @@ function distributeAssets(gallery) {
     });
 
     if (!gallery.classList.contains('gallery-hidden')) {
-        activateGalleryMedia(gallery);
+        resumeGalleryVideos(gallery);
     }
 }
 
@@ -580,6 +591,7 @@ function setupNavigation() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    loadAssetsData();
     setupNavigation();
     showPage('projects');
     renderProjects();
@@ -644,7 +656,7 @@ function setupProjectContainers() {
                     gallery.setAttribute('data-loaded', 'true');
                     populateGallery(projectName);
                 } else {
-                    activateGalleryMedia(gallery);
+                    resumeGalleryVideos(gallery);
                 }
                 
                 setTimeout(() => {
