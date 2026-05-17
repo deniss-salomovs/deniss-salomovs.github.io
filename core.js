@@ -293,163 +293,45 @@ function buildAssetUrl(assetPath, fileName) {
     return assetPath + fileName;
 }
 
-const PRIORITY_VISIBLE_ROWS = 2;
-const DEFERRED_IMAGE_BATCH = 5;
-const DEFERRED_VIDEO_BATCH = 2;
-
-let deferredImageQueue = [];
-let deferredVideoQueue = [];
-let activeDeferredImages = 0;
-let activeDeferredVideos = 0;
-let deferredAssetObserver = null;
-
-function getPriorityAssetCount(columnCount) {
-    return columnCount * PRIORITY_VISIBLE_ROWS;
+function isVideoFile(fileName) {
+    const extension = fileName.split('.').pop().toLowerCase();
+    return VIDEO_EXTENSIONS.includes(extension);
 }
 
 function startGalleryVideo(video) {
-    const play = () => video.play().catch(() => {});
-    video.addEventListener('loadedmetadata', play, { once: true });
-    video.addEventListener('canplay', play, { once: true });
-    video.addEventListener('loadeddata', play, { once: true });
-    play();
-}
-
-function attachGalleryImage(img, fullPath, isPriority) {
-    if (isPriority && 'fetchPriority' in img) {
-        img.fetchPriority = 'high';
-    }
-    img.loading = isPriority ? 'eager' : 'lazy';
-    img.src = fullPath;
-}
-
-function attachGalleryVideo(video, fullPath) {
-    video.preload = 'auto';
-    video.src = fullPath;
+    video.muted = true;
+    video.defaultMuted = true;
     video.load();
-    startGalleryVideo(video);
+    video.play().catch(() => {});
 }
 
-function activateDeferredAsset(element) {
-    const src = element.getAttribute('data-src');
-    if (!src || element.getAttribute('src')) {
-        return;
-    }
-    element.removeAttribute('data-src');
+function unloadGallery(gallery) {
+    if (!gallery) return;
 
-    if (element.tagName === 'VIDEO') {
-        attachGalleryVideo(element, src);
-        return;
-    }
+    gallery.querySelectorAll('video.gallery-asset').forEach(video => {
+        video.pause();
+        video.removeAttribute('src');
+        video.innerHTML = '';
+        video.load();
+    });
 
-    attachGalleryImage(element, src, false);
+    gallery.querySelectorAll('img.gallery-asset').forEach(img => {
+        img.removeAttribute('src');
+    });
+
+    gallery.innerHTML = '';
+    gallery.removeAttribute('data-assets');
+    gallery.removeAttribute('data-asset-path');
 }
 
-function onDeferredImageDone() {
-    activeDeferredImages = Math.max(0, activeDeferredImages - 1);
-    processDeferredImageQueue();
+function unloadAllProjectGalleries() {
+    document.querySelectorAll('.container-project .gallery-grid').forEach(unloadGallery);
 }
 
-function processDeferredImageQueue() {
-    while (activeDeferredImages < DEFERRED_IMAGE_BATCH && deferredImageQueue.length > 0) {
-        const img = deferredImageQueue.shift();
-        activeDeferredImages++;
-        activateDeferredAsset(img);
-        if (img.complete) {
-            onDeferredImageDone();
-        } else {
-            img.addEventListener('load', onDeferredImageDone, { once: true });
-            img.addEventListener('error', onDeferredImageDone, { once: true });
-        }
-    }
-}
-
-function onDeferredVideoDone() {
-    activeDeferredVideos = Math.max(0, activeDeferredVideos - 1);
-    processDeferredVideoQueue();
-}
-
-function processDeferredVideoQueue() {
-    while (activeDeferredVideos < DEFERRED_VIDEO_BATCH && deferredVideoQueue.length > 0) {
-        const video = deferredVideoQueue.shift();
-        activeDeferredVideos++;
-        activateDeferredAsset(video);
-        const finish = () => onDeferredVideoDone();
-        video.addEventListener('loadeddata', finish, { once: true });
-        video.addEventListener('error', finish, { once: true });
-    }
-}
-
-function watchDeferredAsset(element) {
-    if (!element.getAttribute('data-src')) {
-        return;
-    }
-    if (!deferredAssetObserver) {
-        deferredAssetObserver = new IntersectionObserver(entries => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    promoteDeferredAsset(entry.target);
-                }
-            });
-        }, {
-            rootMargin: '500px 0px',
-            threshold: 0.01
-        });
-    }
-    deferredAssetObserver.observe(element);
-}
-
-function promoteDeferredAsset(element) {
-    if (!element.getAttribute('data-src')) {
-        return;
-    }
-    deferredImageQueue = deferredImageQueue.filter(item => item !== element);
-    deferredVideoQueue = deferredVideoQueue.filter(item => item !== element);
-    deferredAssetObserver?.unobserve(element);
-
-    if (element.tagName === 'VIDEO') {
-        activeDeferredVideos++;
-        activateDeferredAsset(element);
-        const finish = () => onDeferredVideoDone();
-        element.addEventListener('loadeddata', finish, { once: true });
-        element.addEventListener('error', finish, { once: true });
-        return;
-    }
-
-    activeDeferredImages++;
-    activateDeferredAsset(element);
-    if (element.complete) {
-        onDeferredImageDone();
-    } else {
-        element.addEventListener('load', onDeferredImageDone, { once: true });
-        element.addEventListener('error', onDeferredImageDone, { once: true });
-    }
-}
-
-function queueDeferredAsset(element, isVideo) {
-    if (isVideo) {
-        deferredVideoQueue.push(element);
-        processDeferredVideoQueue();
-    } else {
-        deferredImageQueue.push(element);
-        processDeferredImageQueue();
-    }
-    watchDeferredAsset(element);
-}
-
-function resetDeferredQueues() {
-    deferredImageQueue = [];
-    deferredVideoQueue = [];
-    activeDeferredImages = 0;
-    activeDeferredVideos = 0;
-}
-
-function createGalleryItem(assetPath, fileName, isPriority) {
-    const fileExtension = fileName.split('.').pop().toLowerCase();
+function createGalleryItem(assetPath, fileName) {
     const fullPath = buildAssetUrl(assetPath, fileName);
-    const isVideo = VIDEO_EXTENSIONS.includes(fileExtension);
     
-    if (isVideo) {
+    if (isVideoFile(fileName)) {
         const video = document.createElement('video');
         video.className = 'gallery-asset';
         video.controls = true;
@@ -460,15 +342,10 @@ function createGalleryItem(assetPath, fileName, isPriority) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
-        video.preload = 'none';
+        video.preload = 'auto';
         video.style.cursor = 'pointer';
-
-        if (isPriority) {
-            attachGalleryVideo(video, fullPath);
-        } else {
-            video.setAttribute('data-src', fullPath);
-            queueDeferredAsset(video, true);
-        }
+        video.src = fullPath;
+        startGalleryVideo(video);
         
         video.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -485,15 +362,8 @@ function createGalleryItem(assetPath, fileName, isPriority) {
     const img = document.createElement('img');
     img.alt = fileName;
     img.className = 'gallery-asset';
-    img.decoding = 'async';
     img.style.cursor = 'pointer';
-
-    if (isPriority) {
-        attachGalleryImage(img, fullPath, true);
-    } else {
-        img.setAttribute('data-src', fullPath);
-        queueDeferredAsset(img, false);
-    }
+    img.src = fullPath;
     
     img.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -505,45 +375,6 @@ function createGalleryItem(assetPath, fileName, isPriority) {
     });
     
     return img;
-}
-
-function preloadProjectPriorityAssets(projectName) {
-    const project = projectConfig[projectName];
-    if (!project) return;
-
-    discoverAssets(projectName).then(assets => {
-        if (!assets.length) return;
-        const columnCount = getColumnCount(getCurrentBreakpoint());
-        const priorityCount = getPriorityAssetCount(columnCount);
-        assets.slice(0, priorityCount).forEach(fileName => {
-            const url = buildAssetUrl(project.path, fileName);
-            const ext = fileName.split('.').pop().toLowerCase();
-            if (VIDEO_EXTENSIONS.includes(ext)) {
-                const link = document.createElement('link');
-                link.rel = 'preload';
-                link.as = 'video';
-                link.href = url;
-                document.head.appendChild(link);
-            } else {
-                const img = new Image();
-                if ('fetchPriority' in img) img.fetchPriority = 'high';
-                img.src = url;
-            }
-        });
-    });
-}
-
-function resumeGalleryVideos(gallery) {
-    if (!gallery || gallery.classList.contains('gallery-hidden')) {
-        return;
-    }
-    gallery.querySelectorAll('video.gallery-asset[data-src]').forEach(promoteDeferredAsset);
-    gallery.querySelectorAll('video.gallery-asset').forEach(startGalleryVideo);
-}
-
-function pauseGalleryMedia(gallery) {
-    if (!gallery) return;
-    gallery.querySelectorAll('video.gallery-asset').forEach(video => video.pause());
 }
 
 async function populateGallery(projectName) {
@@ -559,10 +390,8 @@ async function populateGallery(projectName) {
         }
         
         const project = projectConfig[projectName];
-        resetDeferredQueues();
         gallery.innerHTML = '';
         fillColumnsWithAssets(gallery, assets, project.path);
-        resumeGalleryVideos(gallery);
         
     } catch (error) {
         console.error(`Error loading gallery for ${projectName}:`, error);
@@ -582,10 +411,8 @@ async function populateArtGallery() {
             return;
         }
         
-        resetDeferredQueues();
         gallery.innerHTML = '';
         fillColumnsWithAssets(gallery, assets, 'assets/personal-art/');
-        resumeGalleryVideos(gallery);
         
     } catch (error) {
         console.error(`Error loading art gallery:`, error);
@@ -623,6 +450,9 @@ function fillColumnsWithAssets(gallery, assets, assetPath) {
         let currentBreakpoint = getCurrentBreakpoint();
         
         const resizeHandler = () => {
+            if (gallery.classList.contains('gallery-hidden')) {
+                return;
+            }
             const newBreakpoint = getCurrentBreakpoint();
             if (newBreakpoint !== currentBreakpoint) {
                 currentBreakpoint = newBreakpoint;
@@ -643,10 +473,7 @@ function distributeAssets(gallery) {
     const columnCount = getColumnCount(breakpoint);
     
     if (assets.length === 0) return;
-
-    resetDeferredQueues();
     
-    // Clear existing columns
     gallery.innerHTML = '';
     
     // Create columns
@@ -656,18 +483,12 @@ function distributeAssets(gallery) {
         gallery.appendChild(column);
     }
     
-    const priorityCount = getPriorityAssetCount(columnCount);
     const columns = gallery.querySelectorAll('.gallery-column');
     assets.forEach((fileName, index) => {
         const columnIndex = index % columnCount;
-        const isPriority = index < priorityCount;
-        const item = createGalleryItem(assetPath, fileName, isPriority);
+        const item = createGalleryItem(assetPath, fileName);
         columns[columnIndex].appendChild(item);
     });
-
-    if (!gallery.classList.contains('gallery-hidden')) {
-        resumeGalleryVideos(gallery);
-    }
 }
 
 // Page navigation functionality
@@ -701,9 +522,17 @@ function showPage(pageId) {
         behavior: 'smooth'
     });
     
-    // Load art gallery when art page is shown
+    const artGallery = document.getElementById('art-gallery');
+    
     if (pageId === 'art') {
+        unloadAllProjectGalleries();
+        document.querySelectorAll('.container-project').forEach(container => {
+            container.classList.remove('expanded');
+            container.querySelector('.gallery-grid')?.classList.add('gallery-hidden');
+        });
         populateArtGallery();
+    } else if (artGallery) {
+        unloadGallery(artGallery);
     }
 }   
 
@@ -789,13 +618,6 @@ function setupProjectContainers() {
             isMouseOverGallery = false;
         });
 
-        container.addEventListener('mouseenter', function() {
-            const projectName = getProjectNameFromContainer(container);
-            if (projectName) {
-                preloadProjectPriorityAssets(projectName);
-            }
-        });
-        
         container.addEventListener('click', function(e) {
             if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' || e.target.tagName === 'IMG') {
                 return;
@@ -805,32 +627,28 @@ function setupProjectContainers() {
                 return;
             }
             
-            projectContainers.forEach(otherContainer => {
-                if (otherContainer !== container) {
-                    const otherGallery = otherContainer.querySelector('.gallery-grid');
-                    if (otherGallery) {
-                        otherGallery.classList.add('gallery-hidden');
-                        pauseGalleryMedia(otherGallery);
-                    }
-                    otherContainer.classList.remove('expanded');
-                }
-            });
-            
             const isVisible = gallery.classList.contains('gallery-hidden');
             if (isVisible) {
                 const projectName = getProjectNameFromContainer(container);
+                
+                unloadGallery(document.getElementById('art-gallery'));
+                
+                projectContainers.forEach(otherContainer => {
+                    if (otherContainer !== container) {
+                        const otherGallery = otherContainer.querySelector('.gallery-grid');
+                        if (otherGallery) {
+                            otherGallery.classList.add('gallery-hidden');
+                            unloadGallery(otherGallery);
+                        }
+                        otherContainer.classList.remove('expanded');
+                    }
+                });
+                
                 gallery.classList.remove('gallery-hidden');
                 container.classList.add('expanded');
 
                 if (projectName) {
-                    preloadProjectPriorityAssets(projectName);
-                }
-
-                if (projectName && !gallery.hasAttribute('data-loaded')) {
-                    gallery.setAttribute('data-loaded', 'true');
                     populateGallery(projectName);
-                } else {
-                    resumeGalleryVideos(gallery);
                 }
                 
                 setTimeout(() => {
@@ -845,7 +663,7 @@ function setupProjectContainers() {
                 }, 100);
             } else {
                 gallery.classList.add('gallery-hidden');
-                pauseGalleryMedia(gallery);
+                unloadGallery(gallery);
                 container.classList.remove('expanded');
             }
         });
@@ -907,15 +725,20 @@ function openLightbox(src, isVideo = false, assets = [], assetIndex = 0, assetPa
 
 function closeLightbox() {
     const lightbox = document.getElementById('lightbox');
+    const lightboxImage = document.getElementById('lightbox-image');
+    const lightboxVideo = document.getElementById('lightbox-video');
+    
     lightbox.style.display = 'none';
     document.body.style.overflow = 'auto';
     
-    // Reset transform
+    lightboxVideo.pause();
+    lightboxVideo.removeAttribute('src');
+    lightboxVideo.load();
+    lightboxImage.removeAttribute('src');
+    
     currentScale = 1;
     currentTranslateX = 0;
     currentTranslateY = 0;
-    const lightboxImage = document.getElementById('lightbox-image');
-    const lightboxVideo = document.getElementById('lightbox-video');
     updateTransform(lightboxImage);
     updateTransform(lightboxVideo);
 }
