@@ -203,6 +203,12 @@ function renderProjects() {
 let assetsData = null;
 let galleryAssetObserver = null;
 
+const MAX_CONCURRENT_ASSET_LOADS = 4;
+const ASSET_LOAD_MAX_RETRIES = 2;
+const VIDEO_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
+const assetLoadQueue = [];
+let activeAssetLoads = 0;
+
 // Function to load assets from JSON file
 async function loadAssetsData() {
     if (assetsData) {
@@ -294,7 +300,7 @@ function createGalleryItem(assetPath, fileName) {
     const fileExtension = fileName.split('.').pop().toLowerCase();
     const fullPath = buildAssetUrl(assetPath, fileName);
     
-    if (['mp4', 'mov', 'mkv'].includes(fileExtension)) {
+    if (VIDEO_EXTENSIONS.includes(fileExtension)) {
         const video = document.createElement('video');
         video.controls = true;
         video.muted = true;
@@ -306,10 +312,8 @@ function createGalleryItem(assetPath, fileName) {
         video.setAttribute('data-src', fullPath);
         registerLazyGalleryAsset(video);
         
-        // Add click handler for lightbox
         video.addEventListener('click', function(e) {
             e.stopPropagation();
-            // Get the gallery and its assets
             const gallery = video.closest('.gallery-grid');
             const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
             const assetPath = gallery.getAttribute('data-asset-path') || '';
@@ -317,36 +321,24 @@ function createGalleryItem(assetPath, fileName) {
             openLightbox(fullPath, true, assets, assetIndex, assetPath);
         });
         
-        // Add error handling
-        video.onerror = function() {
-            console.error(`Failed to load video: ${fullPath}`);
-        };
-        
         return video;
     } else {
         const img = document.createElement('img');
         img.alt = fileName;
-        img.loading = 'lazy';
+        img.decoding = 'async';
         img.className = 'gallery-asset';
         img.style.cursor = 'pointer';
         img.setAttribute('data-src', fullPath);
         registerLazyGalleryAsset(img);
         
-        // Add click handler for lightbox
         img.addEventListener('click', function(e) {
             e.stopPropagation();
-            // Get the gallery and its assets
             const gallery = img.closest('.gallery-grid');
             const assets = JSON.parse(gallery.getAttribute('data-assets') || '[]');
             const assetPath = gallery.getAttribute('data-asset-path') || '';
             const assetIndex = assets.indexOf(fileName);
             openLightbox(fullPath, false, assets, assetIndex, assetPath);
         });
-        
-        // Add error handling
-        img.onerror = function() {
-            console.error(`Failed to load image: ${fullPath}`);
-        };
         
         return img;
     }
@@ -356,26 +348,133 @@ function buildAssetUrl(assetPath, fileName) {
     return assetPath + encodeURIComponent(fileName).replace(/%2F/g, '/');
 }
 
+function enqueueAssetLoad(element, src) {
+    assetLoadQueue.push({ element, src });
+    processAssetLoadQueue();
+}
+
+function processAssetLoadQueue() {
+    while (activeAssetLoads < MAX_CONCURRENT_ASSET_LOADS && assetLoadQueue.length > 0) {
+        const job = assetLoadQueue.shift();
+        activeAssetLoads++;
+        loadGalleryAsset(job.element, job.src).finally(() => {
+            activeAssetLoads--;
+            processAssetLoadQueue();
+        });
+    }
+}
+
+function loadGalleryAsset(element, src) {
+    const isVideo = element.tagName === 'VIDEO';
+    let attempts = 0;
+
+    const tryLoad = () => {
+        attempts++;
+        return new Promise(resolve => {
+            const onSuccess = () => {
+                cleanup();
+                element.dataset.loaded = 'true';
+                element.dataset.loading = 'false';
+                galleryAssetObserver?.unobserve(element);
+                resolve(true);
+            };
+            const onFailure = () => {
+                cleanup();
+                if (attempts <= ASSET_LOAD_MAX_RETRIES) {
+                    if (isVideo) {
+                        element.removeAttribute('src');
+                        element.load();
+                    } else {
+                        element.removeAttribute('src');
+                    }
+                    setTimeout(() => {
+                        tryLoad().then(resolve);
+                    }, 400 * attempts);
+                } else {
+                    element.dataset.loading = 'false';
+                    console.error(`Failed to load asset after retries: ${src}`);
+                    resolve(false);
+                }
+            };
+            const cleanup = () => {
+                if (isVideo) {
+                    element.removeEventListener('loadeddata', onSuccess);
+                    element.removeEventListener('error', onFailure);
+                } else {
+                    element.onload = null;
+                    element.onerror = null;
+                }
+            };
+
+            if (isVideo) {
+                element.addEventListener('loadeddata', onSuccess, { once: true });
+                element.addEventListener('error', onFailure, { once: true });
+                element.src = src;
+                element.load();
+            } else {
+                element.onload = onSuccess;
+                element.onerror = onFailure;
+                element.src = src;
+            }
+        });
+    };
+
+    return tryLoad();
+}
+
+function requestGalleryAssetLoad(element) {
+    const src = element.getAttribute('data-src');
+    if (!src || element.dataset.loaded === 'true' || element.dataset.loading === 'true') {
+        return;
+    }
+    if (element.getAttribute('src')) {
+        return;
+    }
+    element.dataset.loading = 'true';
+    enqueueAssetLoad(element, src);
+}
+
 function registerLazyGalleryAsset(element) {
     if (!galleryAssetObserver) {
         galleryAssetObserver = new IntersectionObserver(entries => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
-                    const target = entry.target;
-                    const src = target.getAttribute('data-src');
-                    if (src && !target.getAttribute('src')) {
-                        target.setAttribute('src', src);
-                    }
-                    galleryAssetObserver.unobserve(target);
+                    requestGalleryAssetLoad(entry.target);
                 }
             });
         }, {
-            rootMargin: '300px 0px',
+            rootMargin: '500px 0px',
             threshold: 0.01
         });
     }
 
     galleryAssetObserver.observe(element);
+}
+
+function refreshGalleryAssets(gallery) {
+    if (!gallery) return;
+
+    gallery.querySelectorAll('[data-src]').forEach(element => {
+        if (element.dataset.loaded === 'true' || element.dataset.loading === 'true') {
+            return;
+        }
+
+        const rect = element.getBoundingClientRect();
+        const margin = 500;
+        const inView = rect.bottom >= -margin && rect.top <= window.innerHeight + margin;
+        if (inView) {
+            requestGalleryAssetLoad(element);
+        }
+    });
+}
+
+function scheduleGalleryAssetRefresh(gallery) {
+    if (!gallery) return;
+
+    const refresh = () => refreshGalleryAssets(gallery);
+    refresh();
+    window.requestAnimationFrame(refresh);
+    window.setTimeout(refresh, 100);
 }
 
 async function populateGallery(projectName) {
@@ -498,6 +597,8 @@ function distributeAssets(gallery) {
         const item = createGalleryItem(assetPath, fileName);
         columns[columnIndex].appendChild(item);
     });
+
+    scheduleGalleryAssetRefresh(gallery);
 }
 
 // Page navigation functionality
@@ -583,12 +684,21 @@ function setupNavigation() {
     }
 }
 
+let galleryScrollRefreshTimer = null;
+
 document.addEventListener('DOMContentLoaded', function() {
     setupNavigation();
     showPage('projects');
     renderProjects();
     setupProjectContainers();
     setupLightbox();
+
+    window.addEventListener('scroll', function() {
+        clearTimeout(galleryScrollRefreshTimer);
+        galleryScrollRefreshTimer = setTimeout(function() {
+            document.querySelectorAll('.gallery-grid:not(.gallery-hidden)').forEach(refreshGalleryAssets);
+        }, 150);
+    }, { passive: true });
 });
 
 function getProjectNameFromContainer(container) {
@@ -646,6 +756,7 @@ function setupProjectContainers() {
                 }
                 gallery.classList.remove('gallery-hidden');
                 container.classList.add('expanded');
+                scheduleGalleryAssetRefresh(gallery);
                 
                 setTimeout(() => {
                     const headerHeight = document.querySelector('.container-header')?.offsetHeight || 0;
@@ -765,7 +876,7 @@ function navigateToAsset(direction) {
     
     const fileName = currentAssets[newIndex];
     const fileExtension = fileName.split('.').pop().toLowerCase();
-    const isVideo = ['mp4', 'mov', 'mkv'].includes(fileExtension);
+    const isVideo = VIDEO_EXTENSIONS.includes(fileExtension);
     const fullPath = buildAssetUrl(currentAssetPath, fileName);
     
     // Update current index
