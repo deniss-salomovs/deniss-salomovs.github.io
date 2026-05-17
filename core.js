@@ -201,13 +201,7 @@ function renderProjects() {
 
 // Asset data cache
 let assetsData = null;
-let galleryAssetObserver = null;
-
-const MAX_CONCURRENT_ASSET_LOADS = 4;
-const ASSET_LOAD_MAX_RETRIES = 2;
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
-const assetLoadQueue = [];
-let activeAssetLoads = 0;
 
 // Function to load assets from JSON file
 async function loadAssetsData() {
@@ -304,13 +298,13 @@ function createGalleryItem(assetPath, fileName) {
         const video = document.createElement('video');
         video.controls = true;
         video.muted = true;
-        video.preload = 'none';
-        video.playsInline = true;
+        video.autoplay = true;
         video.loop = true;
+        video.playsInline = true;
+        video.preload = 'none';
         video.className = 'gallery-asset';
         video.style.cursor = 'pointer';
         video.setAttribute('data-src', fullPath);
-        registerLazyGalleryAsset(video);
         
         video.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -329,7 +323,6 @@ function createGalleryItem(assetPath, fileName) {
         img.className = 'gallery-asset';
         img.style.cursor = 'pointer';
         img.setAttribute('data-src', fullPath);
-        registerLazyGalleryAsset(img);
         
         img.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -348,133 +341,31 @@ function buildAssetUrl(assetPath, fileName) {
     return assetPath + encodeURIComponent(fileName).replace(/%2F/g, '/');
 }
 
-function enqueueAssetLoad(element, src) {
-    assetLoadQueue.push({ element, src });
-    processAssetLoadQueue();
-}
-
-function processAssetLoadQueue() {
-    while (activeAssetLoads < MAX_CONCURRENT_ASSET_LOADS && assetLoadQueue.length > 0) {
-        const job = assetLoadQueue.shift();
-        activeAssetLoads++;
-        loadGalleryAsset(job.element, job.src).finally(() => {
-            activeAssetLoads--;
-            processAssetLoadQueue();
-        });
-    }
-}
-
-function loadGalleryAsset(element, src) {
-    const isVideo = element.tagName === 'VIDEO';
-    let attempts = 0;
-
-    const tryLoad = () => {
-        attempts++;
-        return new Promise(resolve => {
-            const onSuccess = () => {
-                cleanup();
-                element.dataset.loaded = 'true';
-                element.dataset.loading = 'false';
-                galleryAssetObserver?.unobserve(element);
-                resolve(true);
-            };
-            const onFailure = () => {
-                cleanup();
-                if (attempts <= ASSET_LOAD_MAX_RETRIES) {
-                    if (isVideo) {
-                        element.removeAttribute('src');
-                        element.load();
-                    } else {
-                        element.removeAttribute('src');
-                    }
-                    setTimeout(() => {
-                        tryLoad().then(resolve);
-                    }, 400 * attempts);
-                } else {
-                    element.dataset.loading = 'false';
-                    console.error(`Failed to load asset after retries: ${src}`);
-                    resolve(false);
-                }
-            };
-            const cleanup = () => {
-                if (isVideo) {
-                    element.removeEventListener('loadeddata', onSuccess);
-                    element.removeEventListener('error', onFailure);
-                } else {
-                    element.onload = null;
-                    element.onerror = null;
-                }
-            };
-
-            if (isVideo) {
-                element.addEventListener('loadeddata', onSuccess, { once: true });
-                element.addEventListener('error', onFailure, { once: true });
-                element.src = src;
-                element.load();
-            } else {
-                element.onload = onSuccess;
-                element.onerror = onFailure;
-                element.src = src;
-            }
-        });
-    };
-
-    return tryLoad();
-}
-
-function requestGalleryAssetLoad(element) {
-    const src = element.getAttribute('data-src');
-    if (!src || element.dataset.loaded === 'true' || element.dataset.loading === 'true') {
+// Load every asset in a gallery at once (only call for visible/open galleries).
+function activateGalleryMedia(gallery) {
+    if (!gallery || gallery.classList.contains('gallery-hidden')) {
         return;
     }
-    if (element.getAttribute('src')) {
-        return;
-    }
-    element.dataset.loading = 'true';
-    enqueueAssetLoad(element, src);
-}
 
-function registerLazyGalleryAsset(element) {
-    if (!galleryAssetObserver) {
-        galleryAssetObserver = new IntersectionObserver(entries => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    requestGalleryAssetLoad(entry.target);
-                }
-            });
-        }, {
-            rootMargin: '500px 0px',
-            threshold: 0.01
-        });
-    }
+    gallery.querySelectorAll('img.gallery-asset[data-src]').forEach(img => {
+        img.src = img.getAttribute('data-src');
+        img.removeAttribute('data-src');
+    });
 
-    galleryAssetObserver.observe(element);
-}
-
-function refreshGalleryAssets(gallery) {
-    if (!gallery) return;
-
-    gallery.querySelectorAll('[data-src]').forEach(element => {
-        if (element.dataset.loaded === 'true' || element.dataset.loading === 'true') {
-            return;
+    gallery.querySelectorAll('video.gallery-asset').forEach(video => {
+        const pendingSrc = video.getAttribute('data-src');
+        if (pendingSrc) {
+            video.src = pendingSrc;
+            video.removeAttribute('data-src');
         }
-
-        const rect = element.getBoundingClientRect();
-        const margin = 500;
-        const inView = rect.bottom >= -margin && rect.top <= window.innerHeight + margin;
-        if (inView) {
-            requestGalleryAssetLoad(element);
-        }
+        video.load();
+        video.play().catch(() => {});
     });
 }
 
-function scheduleGalleryAssetRefresh(gallery) {
+function pauseGalleryMedia(gallery) {
     if (!gallery) return;
-
-    const refresh = () => refreshGalleryAssets(gallery);
-    refresh();
-    window.requestAnimationFrame(refresh);
-    window.setTimeout(refresh, 100);
+    gallery.querySelectorAll('video.gallery-asset').forEach(video => video.pause());
 }
 
 async function populateGallery(projectName) {
@@ -496,6 +387,7 @@ async function populateGallery(projectName) {
         // Add discovered assets to gallery with column-filling logic
         const project = projectConfig[projectName];
         fillColumnsWithAssets(gallery, assets, project.path);
+        activateGalleryMedia(gallery);
         
     } catch (error) {
         console.error(`Error loading gallery for ${projectName}:`, error);
@@ -521,6 +413,7 @@ async function populateArtGallery() {
         
         // Use the same column-filling logic as projects
         fillColumnsWithAssets(gallery, assets, 'assets/personal-art/');
+        activateGalleryMedia(gallery);
         
     } catch (error) {
         console.error(`Error loading art gallery:`, error);
@@ -598,7 +491,9 @@ function distributeAssets(gallery) {
         columns[columnIndex].appendChild(item);
     });
 
-    scheduleGalleryAssetRefresh(gallery);
+    if (!gallery.classList.contains('gallery-hidden')) {
+        activateGalleryMedia(gallery);
+    }
 }
 
 // Page navigation functionality
@@ -684,21 +579,12 @@ function setupNavigation() {
     }
 }
 
-let galleryScrollRefreshTimer = null;
-
 document.addEventListener('DOMContentLoaded', function() {
     setupNavigation();
     showPage('projects');
     renderProjects();
     setupProjectContainers();
     setupLightbox();
-
-    window.addEventListener('scroll', function() {
-        clearTimeout(galleryScrollRefreshTimer);
-        galleryScrollRefreshTimer = setTimeout(function() {
-            document.querySelectorAll('.gallery-grid:not(.gallery-hidden)').forEach(refreshGalleryAssets);
-        }, 150);
-    }, { passive: true });
 });
 
 function getProjectNameFromContainer(container) {
@@ -742,6 +628,7 @@ function setupProjectContainers() {
                     const otherGallery = otherContainer.querySelector('.gallery-grid');
                     if (otherGallery) {
                         otherGallery.classList.add('gallery-hidden');
+                        pauseGalleryMedia(otherGallery);
                     }
                     otherContainer.classList.remove('expanded');
                 }
@@ -750,13 +637,15 @@ function setupProjectContainers() {
             const isVisible = gallery.classList.contains('gallery-hidden');
             if (isVisible) {
                 const projectName = getProjectNameFromContainer(container);
-                if (projectName && !gallery.hasAttribute('data-loaded')) {
-                    populateGallery(projectName);
-                    gallery.setAttribute('data-loaded', 'true');
-                }
                 gallery.classList.remove('gallery-hidden');
                 container.classList.add('expanded');
-                scheduleGalleryAssetRefresh(gallery);
+
+                if (projectName && !gallery.hasAttribute('data-loaded')) {
+                    gallery.setAttribute('data-loaded', 'true');
+                    populateGallery(projectName);
+                } else {
+                    activateGalleryMedia(gallery);
+                }
                 
                 setTimeout(() => {
                     const headerHeight = document.querySelector('.container-header')?.offsetHeight || 0;
@@ -770,6 +659,7 @@ function setupProjectContainers() {
                 }, 100);
             } else {
                 gallery.classList.add('gallery-hidden');
+                pauseGalleryMedia(gallery);
                 container.classList.remove('expanded');
             }
         });
