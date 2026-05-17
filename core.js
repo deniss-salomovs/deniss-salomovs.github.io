@@ -293,22 +293,163 @@ function buildAssetUrl(assetPath, fileName) {
     return assetPath + fileName;
 }
 
+const PRIORITY_VISIBLE_ROWS = 2;
+const DEFERRED_IMAGE_BATCH = 5;
+const DEFERRED_VIDEO_BATCH = 2;
+
+let deferredImageQueue = [];
+let deferredVideoQueue = [];
+let activeDeferredImages = 0;
+let activeDeferredVideos = 0;
+let deferredAssetObserver = null;
+
+function getPriorityAssetCount(columnCount) {
+    return columnCount * PRIORITY_VISIBLE_ROWS;
+}
+
 function startGalleryVideo(video) {
     const play = () => video.play().catch(() => {});
-    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-        play();
-        return;
-    }
-    video.addEventListener('loadeddata', play, { once: true });
+    video.addEventListener('loadedmetadata', play, { once: true });
     video.addEventListener('canplay', play, { once: true });
+    video.addEventListener('loadeddata', play, { once: true });
     play();
 }
 
-function createGalleryItem(assetPath, fileName) {
+function attachGalleryImage(img, fullPath, isPriority) {
+    if (isPriority && 'fetchPriority' in img) {
+        img.fetchPriority = 'high';
+    }
+    img.loading = isPriority ? 'eager' : 'lazy';
+    img.src = fullPath;
+}
+
+function attachGalleryVideo(video, fullPath) {
+    video.preload = 'auto';
+    video.src = fullPath;
+    video.load();
+    startGalleryVideo(video);
+}
+
+function activateDeferredAsset(element) {
+    const src = element.getAttribute('data-src');
+    if (!src || element.getAttribute('src')) {
+        return;
+    }
+    element.removeAttribute('data-src');
+
+    if (element.tagName === 'VIDEO') {
+        attachGalleryVideo(element, src);
+        return;
+    }
+
+    attachGalleryImage(element, src, false);
+}
+
+function onDeferredImageDone() {
+    activeDeferredImages = Math.max(0, activeDeferredImages - 1);
+    processDeferredImageQueue();
+}
+
+function processDeferredImageQueue() {
+    while (activeDeferredImages < DEFERRED_IMAGE_BATCH && deferredImageQueue.length > 0) {
+        const img = deferredImageQueue.shift();
+        activeDeferredImages++;
+        activateDeferredAsset(img);
+        if (img.complete) {
+            onDeferredImageDone();
+        } else {
+            img.addEventListener('load', onDeferredImageDone, { once: true });
+            img.addEventListener('error', onDeferredImageDone, { once: true });
+        }
+    }
+}
+
+function onDeferredVideoDone() {
+    activeDeferredVideos = Math.max(0, activeDeferredVideos - 1);
+    processDeferredVideoQueue();
+}
+
+function processDeferredVideoQueue() {
+    while (activeDeferredVideos < DEFERRED_VIDEO_BATCH && deferredVideoQueue.length > 0) {
+        const video = deferredVideoQueue.shift();
+        activeDeferredVideos++;
+        activateDeferredAsset(video);
+        const finish = () => onDeferredVideoDone();
+        video.addEventListener('loadeddata', finish, { once: true });
+        video.addEventListener('error', finish, { once: true });
+    }
+}
+
+function watchDeferredAsset(element) {
+    if (!element.getAttribute('data-src')) {
+        return;
+    }
+    if (!deferredAssetObserver) {
+        deferredAssetObserver = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    promoteDeferredAsset(entry.target);
+                }
+            });
+        }, {
+            rootMargin: '500px 0px',
+            threshold: 0.01
+        });
+    }
+    deferredAssetObserver.observe(element);
+}
+
+function promoteDeferredAsset(element) {
+    if (!element.getAttribute('data-src')) {
+        return;
+    }
+    deferredImageQueue = deferredImageQueue.filter(item => item !== element);
+    deferredVideoQueue = deferredVideoQueue.filter(item => item !== element);
+    deferredAssetObserver?.unobserve(element);
+
+    if (element.tagName === 'VIDEO') {
+        activeDeferredVideos++;
+        activateDeferredAsset(element);
+        const finish = () => onDeferredVideoDone();
+        element.addEventListener('loadeddata', finish, { once: true });
+        element.addEventListener('error', finish, { once: true });
+        return;
+    }
+
+    activeDeferredImages++;
+    activateDeferredAsset(element);
+    if (element.complete) {
+        onDeferredImageDone();
+    } else {
+        element.addEventListener('load', onDeferredImageDone, { once: true });
+        element.addEventListener('error', onDeferredImageDone, { once: true });
+    }
+}
+
+function queueDeferredAsset(element, isVideo) {
+    if (isVideo) {
+        deferredVideoQueue.push(element);
+        processDeferredVideoQueue();
+    } else {
+        deferredImageQueue.push(element);
+        processDeferredImageQueue();
+    }
+    watchDeferredAsset(element);
+}
+
+function resetDeferredQueues() {
+    deferredImageQueue = [];
+    deferredVideoQueue = [];
+    activeDeferredImages = 0;
+    activeDeferredVideos = 0;
+}
+
+function createGalleryItem(assetPath, fileName, isPriority) {
     const fileExtension = fileName.split('.').pop().toLowerCase();
     const fullPath = buildAssetUrl(assetPath, fileName);
+    const isVideo = VIDEO_EXTENSIONS.includes(fileExtension);
     
-    if (VIDEO_EXTENSIONS.includes(fileExtension)) {
+    if (isVideo) {
         const video = document.createElement('video');
         video.className = 'gallery-asset';
         video.controls = true;
@@ -319,12 +460,15 @@ function createGalleryItem(assetPath, fileName) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
-        video.preload = 'auto';
+        video.preload = 'none';
         video.style.cursor = 'pointer';
 
-        video.src = fullPath;
-        video.load();
-        startGalleryVideo(video);
+        if (isPriority) {
+            attachGalleryVideo(video, fullPath);
+        } else {
+            video.setAttribute('data-src', fullPath);
+            queueDeferredAsset(video, true);
+        }
         
         video.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -341,10 +485,15 @@ function createGalleryItem(assetPath, fileName) {
     const img = document.createElement('img');
     img.alt = fileName;
     img.className = 'gallery-asset';
-    img.loading = 'eager';
     img.decoding = 'async';
-    img.src = fullPath;
     img.style.cursor = 'pointer';
+
+    if (isPriority) {
+        attachGalleryImage(img, fullPath, true);
+    } else {
+        img.setAttribute('data-src', fullPath);
+        queueDeferredAsset(img, false);
+    }
     
     img.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -358,31 +507,43 @@ function createGalleryItem(assetPath, fileName) {
     return img;
 }
 
+function preloadProjectPriorityAssets(projectName) {
+    const project = projectConfig[projectName];
+    if (!project) return;
+
+    discoverAssets(projectName).then(assets => {
+        if (!assets.length) return;
+        const columnCount = getColumnCount(getCurrentBreakpoint());
+        const priorityCount = getPriorityAssetCount(columnCount);
+        assets.slice(0, priorityCount).forEach(fileName => {
+            const url = buildAssetUrl(project.path, fileName);
+            const ext = fileName.split('.').pop().toLowerCase();
+            if (VIDEO_EXTENSIONS.includes(ext)) {
+                const link = document.createElement('link');
+                link.rel = 'preload';
+                link.as = 'video';
+                link.href = url;
+                document.head.appendChild(link);
+            } else {
+                const img = new Image();
+                if ('fetchPriority' in img) img.fetchPriority = 'high';
+                img.src = url;
+            }
+        });
+    });
+}
+
 function resumeGalleryVideos(gallery) {
     if (!gallery || gallery.classList.contains('gallery-hidden')) {
         return;
     }
+    gallery.querySelectorAll('video.gallery-asset[data-src]').forEach(promoteDeferredAsset);
     gallery.querySelectorAll('video.gallery-asset').forEach(startGalleryVideo);
 }
 
 function pauseGalleryMedia(gallery) {
     if (!gallery) return;
     gallery.querySelectorAll('video.gallery-asset').forEach(video => video.pause());
-}
-
-function warmGalleryAssets(assetPath, assets) {
-    assets.forEach(fileName => {
-        const url = buildAssetUrl(assetPath, fileName);
-        const ext = fileName.split('.').pop().toLowerCase();
-        if (VIDEO_EXTENSIONS.includes(ext)) {
-            return;
-        }
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.as = 'image';
-        link.href = url;
-        document.head.appendChild(link);
-    });
 }
 
 async function populateGallery(projectName) {
@@ -398,7 +559,7 @@ async function populateGallery(projectName) {
         }
         
         const project = projectConfig[projectName];
-        warmGalleryAssets(project.path, assets);
+        resetDeferredQueues();
         gallery.innerHTML = '';
         fillColumnsWithAssets(gallery, assets, project.path);
         resumeGalleryVideos(gallery);
@@ -421,7 +582,7 @@ async function populateArtGallery() {
             return;
         }
         
-        warmGalleryAssets('assets/personal-art/', assets);
+        resetDeferredQueues();
         gallery.innerHTML = '';
         fillColumnsWithAssets(gallery, assets, 'assets/personal-art/');
         resumeGalleryVideos(gallery);
@@ -482,6 +643,8 @@ function distributeAssets(gallery) {
     const columnCount = getColumnCount(breakpoint);
     
     if (assets.length === 0) return;
+
+    resetDeferredQueues();
     
     // Clear existing columns
     gallery.innerHTML = '';
@@ -493,12 +656,12 @@ function distributeAssets(gallery) {
         gallery.appendChild(column);
     }
     
-    // Fill columns: asset 1 goes to column 1, asset 2 to column 2, etc.
+    const priorityCount = getPriorityAssetCount(columnCount);
     const columns = gallery.querySelectorAll('.gallery-column');
     assets.forEach((fileName, index) => {
         const columnIndex = index % columnCount;
-        
-        const item = createGalleryItem(assetPath, fileName);
+        const isPriority = index < priorityCount;
+        const item = createGalleryItem(assetPath, fileName, isPriority);
         columns[columnIndex].appendChild(item);
     });
 
@@ -625,6 +788,13 @@ function setupProjectContainers() {
         gallery.addEventListener('mouseleave', function() {
             isMouseOverGallery = false;
         });
+
+        container.addEventListener('mouseenter', function() {
+            const projectName = getProjectNameFromContainer(container);
+            if (projectName) {
+                preloadProjectPriorityAssets(projectName);
+            }
+        });
         
         container.addEventListener('click', function(e) {
             if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' || e.target.tagName === 'IMG') {
@@ -651,6 +821,10 @@ function setupProjectContainers() {
                 const projectName = getProjectNameFromContainer(container);
                 gallery.classList.remove('gallery-hidden');
                 container.classList.add('expanded');
+
+                if (projectName) {
+                    preloadProjectPriorityAssets(projectName);
+                }
 
                 if (projectName && !gallery.hasAttribute('data-loaded')) {
                     gallery.setAttribute('data-loaded', 'true');
