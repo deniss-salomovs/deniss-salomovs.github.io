@@ -122,6 +122,26 @@ async function processOne(src, repoRel) {
   if (!cls) return null;
   const { full, thumb } = siblings(src, cls.kind);
   const srcSize = await sizeOf(src);
+  // Headers render at a single size in the UI — no thumb tier is needed.
+  const headerOnly = isHeaderFile(src);
+
+  if (headerOnly) {
+    if (await exists(full) && (await mtime(full)) >= (await mtime(src))) {
+      const fSize = await sizeOf(full);
+      console.log(`[skip] ${repoRel} (${mb(srcSize)}MB -> ${mb(fSize)}MB header)`);
+      return { status: 'skip', srcSize, fullSize: fSize, thumbSize: 0 };
+    }
+    const [argsFull] = ffmpegArgsFor(cls.kind, src, full, thumb);
+    const r = await runFfmpeg(argsFull);
+    if (r.code !== 0) {
+      console.log(`[fail] ${repoRel} (header)`);
+      return { status: 'fail', srcSize, fullSize: 0, thumbSize: 0, stderr: r.stderr, stage: 'header' };
+    }
+    const fSize = await sizeOf(full);
+    console.log(`[conv] ${repoRel} (${mb(srcSize)}MB -> ${mb(fSize)}MB header)`);
+    return { status: 'conv', srcSize, fullSize: fSize, thumbSize: 0 };
+  }
+
   if (await shouldSkip(src, full, thumb)) {
     const fSize = await sizeOf(full);
     const tSize = await sizeOf(thumb);
@@ -148,8 +168,11 @@ async function processOne(src, repoRel) {
 function shouldConsiderSource(file) {
   const base = path.basename(file);
   if (isThumb(base)) return false;
-  if (isHeader(base)) return false;
   return classify(file) !== null;
+}
+
+function isHeaderFile(file) {
+  return isHeader(path.basename(file));
 }
 
 function sortKey(name) {
@@ -167,8 +190,8 @@ function cmpName(a, b) {
 
 async function collectProjectEntries(absProjDir) {
   const files = await walkFiles(absProjDir);
-  // Bucket source files by basename stem to pair with their generated siblings.
-  const sources = files.filter(f => shouldConsiderSource(f));
+  // Headers are referenced from projectsData in core.js, not from assets.json — skip them here.
+  const sources = files.filter(f => shouldConsiderSource(f) && !isHeaderFile(f));
   const present = new Set(files.map(f => f.toLowerCase()));
   const entries = [];
   for (const src of sources) {

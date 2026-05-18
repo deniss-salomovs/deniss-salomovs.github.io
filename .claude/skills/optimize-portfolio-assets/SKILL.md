@@ -25,6 +25,8 @@ For every source file `<name>.<ext>` the skill produces, *next to it*, these sib
 
 Originals are **kept on disk** but `assets.json` is rewritten to reference only the optimized siblings. The gallery loads `*.thumb.*` in the grid; the lightbox loads the full `*.webp`/`*.webm` on open. (See `frontend-loader-engineer` agent for the consumer side.)
 
+**Headers** (`header.*` at the root of each project folder) are also converted to `.webp`, but only the full sibling — no thumb tier is generated because the UI shows each header at a single fixed size. Headers are **not** added to `assets.json`; they are referenced directly from `projectsData` in `core.js`, which the optimizer leaves untouched. After a fresh header conversion, the `projectsData[i].headerImage` paths in `core.js` must be manually updated from `.png`/`.gif` to `.webp` — this is a one-time edit per added/renamed header.
+
 The conversion script must be **idempotent**: re-running the skill must skip files whose optimized siblings are already newer than the source.
 
 ## Pipeline (use `ffmpeg`, already installed)
