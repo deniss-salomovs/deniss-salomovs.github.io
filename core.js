@@ -1,4 +1,4 @@
-﻿const projectsData = [
+const projectsData = [
     {
         id: 'ether',
         name: 'Ether',
