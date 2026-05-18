@@ -12,6 +12,8 @@ const ASSET_MANAGER_HTML = path.join(REPO_ROOT, 'asset-manager.html');
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg']);
 const GIF_EXT = new Set(['.gif']);
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.mkv']);
+const ICO_EXT = new Set(['.ico']);
+const ICONS_REL = 'assets/icons';
 
 async function exists(p) {
   try { await access(p); return true; } catch { return false; }
@@ -56,6 +58,7 @@ function classify(file) {
   if (IMAGE_EXT.has(ext)) return { kind: 'image', outExt: '.webp' };
   if (GIF_EXT.has(ext)) return { kind: 'gif', outExt: '.webp' };
   if (VIDEO_EXT.has(ext)) return { kind: 'video', outExt: '.webm' };
+  if (ICO_EXT.has(ext)) return { kind: 'ico', outExt: '.webp' };
   return null;
 }
 
@@ -69,7 +72,7 @@ function siblings(file, kind) {
   };
 }
 
-function ffmpegArgsFor(kind, src, full, thumb) {
+function ffmpegArgsFor(kind, src, full, thumb, opts = {}) {
   if (kind === 'image') {
     return [
       ['-y', '-i', src, '-c:v', 'libwebp', '-q:v', '80', '-compression_level', '6', '-an', full],
@@ -80,6 +83,13 @@ function ffmpegArgsFor(kind, src, full, thumb) {
     return [
       ['-y', '-i', src, '-loop', '0', '-c:v', 'libwebp', '-lossless', '0', '-q:v', '70', '-compression_level', '6', '-loop', '0', '-preset', 'picture', '-an', full],
       ['-y', '-i', src, '-vf', "scale='min(480,iw)':-2,fps=15", '-loop', '0', '-c:v', 'libwebp', '-q:v', '50', '-compression_level', '6', '-loop', '0', '-preset', 'picture', '-an', thumb],
+    ];
+  }
+  if (kind === 'ico') {
+    const stream = opts.icoStream ?? 0;
+    return [
+      ['-y', '-i', src, '-map', `0:v:${stream}`, '-c:v', 'libwebp', '-q:v', '90', '-compression_level', '6', '-an', full],
+      null,
     ];
   }
   // video
@@ -97,6 +107,35 @@ function runFfmpeg(args) {
     proc.on('error', err => resolve({ code: -1, stderr: err.message }));
     proc.on('close', code => resolve({ code, stderr }));
   });
+}
+
+function runFfprobe(args) {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.on('error', err => resolve({ code: -1, stdout: '', stderr: err.message }));
+    proc.on('close', code => resolve({ code, stdout, stderr }));
+  });
+}
+
+// .ico is a multi-resolution container. Pick the largest embedded image so the
+// resulting .webp is crisp at any rendered size.
+async function pickLargestIcoStream(src) {
+  const r = await runFfprobe(['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', src]);
+  if (r.code !== 0) return 0;
+  const lines = r.stdout.trim().split(/\r?\n/).filter(Boolean);
+  let best = 0, bestArea = -1;
+  lines.forEach((line, idx) => {
+    const [w, h] = line.split(',').map(s => parseInt(s, 10));
+    if (Number.isFinite(w) && Number.isFinite(h)) {
+      const area = w * h;
+      if (area > bestArea) { bestArea = area; best = idx; }
+    }
+  });
+  return best;
 }
 
 async function mtime(p) {
@@ -117,28 +156,35 @@ async function shouldSkip(src, full, thumb) {
   return fM >= srcM && tM >= srcM;
 }
 
+function isInIconsDir(file) {
+  return path.relative(REPO_ROOT, file).replace(/\\/g, '/').startsWith(ICONS_REL + '/');
+}
+
 async function processOne(src, repoRel) {
   const cls = classify(src);
   if (!cls) return null;
   const { full, thumb } = siblings(src, cls.kind);
   const srcSize = await sizeOf(src);
-  // Headers render at a single size in the UI — no thumb tier is needed.
-  const headerOnly = isHeaderFile(src);
+  // Headers and icons render at a single size in the UI — no thumb tier is needed.
+  const noThumb = isHeaderFile(src) || isInIconsDir(src);
+  const label = isHeaderFile(src) ? 'header' : isInIconsDir(src) ? 'icon' : null;
 
-  if (headerOnly) {
+  if (noThumb) {
     if (await exists(full) && (await mtime(full)) >= (await mtime(src))) {
       const fSize = await sizeOf(full);
-      console.log(`[skip] ${repoRel} (${mb(srcSize)}MB -> ${mb(fSize)}MB header)`);
+      console.log(`[skip] ${repoRel} (${mb(srcSize)}MB -> ${mb(fSize)}MB ${label})`);
       return { status: 'skip', srcSize, fullSize: fSize, thumbSize: 0 };
     }
-    const [argsFull] = ffmpegArgsFor(cls.kind, src, full, thumb);
+    const opts = {};
+    if (cls.kind === 'ico') opts.icoStream = await pickLargestIcoStream(src);
+    const [argsFull] = ffmpegArgsFor(cls.kind, src, full, thumb, opts);
     const r = await runFfmpeg(argsFull);
     if (r.code !== 0) {
-      console.log(`[fail] ${repoRel} (header)`);
-      return { status: 'fail', srcSize, fullSize: 0, thumbSize: 0, stderr: r.stderr, stage: 'header' };
+      console.log(`[fail] ${repoRel} (${label})`);
+      return { status: 'fail', srcSize, fullSize: 0, thumbSize: 0, stderr: r.stderr, stage: label };
     }
     const fSize = await sizeOf(full);
-    console.log(`[conv] ${repoRel} (${mb(srcSize)}MB -> ${mb(fSize)}MB header)`);
+    console.log(`[conv] ${repoRel} (${mb(srcSize)}MB -> ${mb(fSize)}MB ${label})`);
     return { status: 'conv', srcSize, fullSize: fSize, thumbSize: 0 };
   }
 
@@ -227,6 +273,7 @@ async function main() {
   const totals = { sources: 0, conv: 0, skip: 0, fail: 0, before: 0, afterFull: 0, afterThumb: 0 };
   const failures = [];
 
+  // Process project galleries (with thumb tier).
   for (const proj of targets) {
     const absDir = path.join(REPO_ROOT, proj.path);
     const files = await walkFiles(absDir);
@@ -245,6 +292,25 @@ async function main() {
         totals.fail++;
         failures.push({ path: rel, stage: result.stage, stderr: result.stderr });
       }
+    }
+  }
+
+  // Process UI icons (no thumb tier; .svg files are left alone). Runs unconditionally
+  // even when a project scope is passed, because icons are global UI assets.
+  const iconFiles = await walkFiles(path.join(REPO_ROOT, ICONS_REL));
+  for (const f of iconFiles) {
+    if (!shouldConsiderSource(f)) continue;
+    totals.sources++;
+    const rel = path.relative(REPO_ROOT, f).replace(/\\/g, '/');
+    const result = await processOne(f, rel);
+    if (!result) continue;
+    totals.before += result.srcSize;
+    totals.afterFull += result.fullSize;
+    if (result.status === 'conv') totals.conv++;
+    else if (result.status === 'skip') totals.skip++;
+    else if (result.status === 'fail') {
+      totals.fail++;
+      failures.push({ path: rel, stage: result.stage, stderr: result.stderr });
     }
   }
 

@@ -69,7 +69,7 @@ Count raw sources whose optimized sibling is **missing**:
 - For `*.mp4`, `*.mov`, `*.mkv`: missing if no `<stem>.webm` next to it.
 - Independently check `<stem>.thumb.<webp|webm>` existence for the thumbnail pass.
 
-Report two numbers: `unoptimized_full=<N>`, `unoptimized_thumb=<N>`. List the first 10 offenders by path. Exclude anything under `assets/icons/` from all checks.
+Report two numbers: `unoptimized_full=<N>`, `unoptimized_thumb=<N>`. List the first 10 offenders by path. The thumb check skips `assets/icons/` and `header.*` files (those tiers use full-only conversion); the full check covers all of `assets/projects/**`, `assets/personal-art/**`, and `assets/icons/**`. `.svg` files anywhere are ignored — vector assets need no conversion.
 
 ### 5. Served bytes (the number that actually matters)
 

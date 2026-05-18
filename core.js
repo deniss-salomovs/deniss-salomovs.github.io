@@ -1,4 +1,4 @@
-const projectsData = [
+﻿const projectsData = [
     {
         id: 'ether',
         name: 'Ether',
@@ -10,7 +10,7 @@ const projectsData = [
         links: [
             {
                 url: 'https://store.steampowered.com/app/3107730/Ether/',
-                icon: 'assets/icons/steam.ico'
+                icon: 'assets/icons/steam.webp'
             }
         ],
         gallery: {

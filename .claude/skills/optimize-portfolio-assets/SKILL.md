@@ -11,7 +11,7 @@ description: Batch-optimize the portfolio asset library. Converts raw png/jpg/gi
 - An audit (see `audit-assets` skill) shows raw `.png/.jpg/.gif/.mp4/.mov/.mkv` files that don't have webp/webm siblings yet.
 - User says "optimize", "convert", "compress assets", "make thumbnails", "сжать", "перевести в webp/webm".
 
-Do **not** invoke for `assets/icons/` (UI icons stay as-is) or for `DenissSalomovsCV.pdf`.
+Do **not** invoke for `DenissSalomovsCV.pdf` or for `.svg` files. UI icons under `assets/icons/` **are** in scope — see the dedicated icon handling below.
 
 ## Output contract
 
@@ -25,7 +25,7 @@ For every source file `<name>.<ext>` the skill produces, *next to it*, these sib
 
 Originals are **kept on disk** but `assets.json` is rewritten to reference only the optimized siblings. The gallery loads `*.thumb.*` in the grid; the lightbox loads the full `*.webp`/`*.webm` on open. (See `frontend-loader-engineer` agent for the consumer side.)
 
-**Headers** (`header.*` at the root of each project folder) are also converted to `.webp`, but only the full sibling — no thumb tier is generated because the UI shows each header at a single fixed size. Headers are **not** added to `assets.json`; they are referenced directly from `projectsData` in `core.js`, which the optimizer leaves untouched. After a fresh header conversion, the `projectsData[i].headerImage` paths in `core.js` must be manually updated from `.png`/`.gif` to `.webp` — this is a one-time edit per added/renamed header.
+**Headers** (`header.*` at the root of each project folder) and **UI icons** under `assets/icons/` are also converted to `.webp`, but only the full sibling — no thumb tier is generated because both render at a single fixed size in the UI. They are **not** added to `assets.json`; they are referenced directly from `projectsData` (headers, link icons) in `core.js` and from `<img src>` in `index.html` (software icons on the Info page). After conversion, those paths in `core.js`/`index.html` must be manually updated from `.png`/`.gif`/`.ico` to `.webp` — a one-time edit per added/renamed asset. `.ico` files are multi-resolution containers; the optimizer auto-picks the largest embedded image via `ffprobe` so the webp output stays crisp at any rendered size. `.svg` files are skipped entirely (vector — no conversion benefit).
 
 The conversion script must be **idempotent**: re-running the skill must skip files whose optimized siblings are already newer than the source.
 
@@ -52,6 +52,16 @@ ffmpeg -y -i SRC -vf "scale='min(480,iw)':-2,fps=15" -loop 0 -c:v libwebp -q:v 5
 ```
 ffmpeg -y -i SRC -c:v libvpx-vp9 -crf 32 -b:v 0 -row-mt 1 -deadline good -cpu-used 2 -c:a libopus -b:a 96k OUT.webm
 ffmpeg -y -i SRC -vf "scale='min(720,iw)':-2,fps=24" -c:v libvpx-vp9 -crf 40 -b:v 0 -row-mt 1 -deadline good -cpu-used 4 -an OUT.thumb.webm
+```
+
+### Icons (ico) → webp (full only, no thumb)
+
+First probe to find the largest embedded image, then map that stream:
+
+```
+LARGEST=$(ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 SRC \
+  | awk -F, '{print NR-1, $1*$2}' | sort -k2 -n | tail -1 | awk '{print $1}')
+ffmpeg -y -i SRC -map 0:v:${LARGEST} -c:v libwebp -q:v 90 -compression_level 6 -an OUT.webp
 ```
 
 Tune `-crf` if a single output is still over ~3 MB for full or ~500 KB for thumb. Never go below `-crf 24` (full) or `-crf 32` (thumb) — quality cliff.
